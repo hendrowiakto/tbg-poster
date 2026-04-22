@@ -1,0 +1,35 @@
+# ===== Per-PC config & secrets (JANGAN pernah di-push) =====
+config.txt
+credentials.json
+credentials2.json
+
+# ===== Runtime state =====
+stats.txt
+log/
+logs/
+*.log
+
+# ===== Cache / temporary =====
+__pycache__/
+*.pyc
+temp_images/
+chrome-debug*/
+
+# ===== Instance-specific (per office PC) =====
+Poster1/
+Poster2/
+
+# ===== Local editor / tool =====
+.claude/
+.vscode/
+.idea/
+
+# ===== Large binary asset (per-PC) =====
+boys_gaming.gif
+
+# ===== Build artifacts (PyInstaller) =====
+build/
+dist/
+*.spec
+Bot Manage Listing.exe
+BotManageListing.exe

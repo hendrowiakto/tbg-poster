@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Manage Listing v1.0.2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #080a10;
+    --surface: #0f1117;
+    --surface2: #161922;
+    --surface3: #1e2130;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #e2e4ed;
+    --text2: #8891a8;
+    --text3: #565e75;
+    --accent: oklch(0.62 0.22 255);
+    --accent-dim: oklch(0.62 0.22 255 / 0.15);
+    --accent-glow: oklch(0.62 0.22 255 / 0.3);
+    --success: oklch(0.65 0.18 145);
+    --success-dim: oklch(0.65 0.18 145 / 0.12);
+    --danger: oklch(0.52 0.13 20);
+    --danger-dim: oklch(0.63 0.22 20 / 0.12);
+    --warning: oklch(0.72 0.18 78);
+    --warning-dim: oklch(0.72 0.18 78 / 0.12);
+    --sidebar-width: 290px;
+    --header-h: 54px;
+    --footer-h: 52px;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; overflow: hidden; }
+  #root { height: 100%; display: flex; flex-direction: column; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+
+  /* Tweaks panel */
+  .tweaks-panel {
+    position: fixed; bottom: 70px; right: 16px;
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 16px; width: 230px;
+    z-index: 999; box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    display: none;
+  }
+  .tweaks-panel.open { display: block; }
+  .tweaks-title { font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text3); margin-bottom: 14px; }
+  .tweak-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .tweak-label { font-size: 12px; color: var(--text2); }
+  .tweak-select { background: var(--surface3); border: 1px solid var(--border); color: var(--text);
+    border-radius: var(--radius-sm); padding: 4px 8px; font-size: 12px; font-family: inherit; cursor: pointer; }
+  .toggle-sw { width: 36px; height: 20px; background: var(--surface3); border-radius: 99px;
+    position: relative; cursor: pointer; border: 1px solid var(--border2); transition: background .2s; }
+  .toggle-sw.on { background: var(--accent); border-color: var(--accent); }
+  .toggle-sw::after { content:''; position: absolute; width: 14px; height: 14px;
+    background: white; border-radius: 50%; top: 2px; left: 2px; transition: left .2s; }
+  .toggle-sw.on::after { left: 18px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Python bridge hooks (called from webview_app.py via evaluate_js) ──
+// These dispatch CustomEvents into the React App, which listens in useEffect.
+window.pushLogBatch = (entries) => {
+  window.dispatchEvent(new CustomEvent('bot-log-batch', { detail: entries }));
+};
+window.pushLog = (entry) => {
+  window.dispatchEvent(new CustomEvent('bot-log-batch', { detail: [entry] }));
+};
+window.setAppState = (state) => {
+  window.dispatchEvent(new CustomEvent('bot-state', { detail: state }));
+};
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accentColor": "blue",
+  "compactMode": false,
+  "logFontSize": 12,
+  "showTimestamps": true
+}/*EDITMODE-END*/;
+
+// ─── Icons (inline SVG as components) ────────────────────────────────────────
+const Icon = ({ d, size = 14, stroke = "currentColor", fill = "none", strokeWidth = 1.6 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+    <path d={d} />
+  </svg>
+);
+
+const icons = {
+  delete: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
+  create: "M12 5v14M5 12h14",
+  diskon: "M19 5L5 19M9 6.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM20.5 17.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z",
+  log: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6",
+  sheets: "M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zM3 9h18M3 15h18M9 3v18",
+  scan: "M5 3H3v4M19 3h2v4M5 21H3v-4M19 21h2v-4M12 8v8M8 12h8",
+  link: "M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71",
+  worker: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75",
+  bolt: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+  clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
+  chevronDown: "M6 9l6 6 6-6",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const now = () => {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+};
+
+const fmtDate = () => {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+};
+
+const initialLogs = [
+  { id:10000,  time:'09:08:50', level:'APP',    msg:'Prescan LINK: DELETE=1 CREATE=0 DISKON=0' },
+  { id:10001,  time:'09:08:50', level:'APP',    msg:'Mulai cycle DELETE' },
+  { id:10002,  time:'09:08:52', level:'DELETE', msg:'LINK!C counter: 1 tab aktif, total 4 PERLU DELETE' },
+  { id:10003,  time:'09:08:54', level:'DELETE', msg:"Ketemu PERLU DELETE: sheet='Clash Royale' baris=57" },
+  { id:10004,  time:'09:08:54', level:'DELETE', msg:'Proses baris 57 (Clash Royale) - 1 market, paralel (stagger 1s)...' },
+  { id:10005,  time:'09:08:54', level:'DELETE', msg:'Proses kolom O baris 57 | Platform: GM | Kode: SSR1111 | Link: https://gamemarket.gg/.../clash-royale' },
+  { id:10006,  time:'09:08:55', level:'DELETE', msg:'[GM] Membuka halaman: https://gamemarket.gg/.../clash-royale' },
+  { id:10007,  time:'09:09:06', level:'DELETE', msg:'[GM] Search kode listing: SSR1111...' },
+  { id:10008,  time:'09:09:10', level:'DELETE', msg:'[GM] Klik icon sampah...' },
+  { id:10009, time:'09:09:11', level:'DELETE', msg:'[GM] Klik tombol konfirmasi Delete...' },
+  { id:10010, time:'09:09:16', level:'DELETE', msg:'[GM] Listing SSR1111 berhasil dihapus!' },
+  { id:10011, time:'09:09:17', level:'DELETE', msg:'Kolom O57 berhasil di-uncentang.' },
+  { id:10012, time:'09:09:17', level:'DELETE', msg:'Selesai proses baris 57 (Clash Royale)' },
+  { id:10013, time:'10:13:02', level:'CREATE', msg:'Deep scan: 1 tab aktif dalam 0.5s' },
+  { id:10014, time:'10:13:02', level:'CREATE', msg:'Dispatch 3 worker paralel...' },
+  { id:10015, time:'10:13:02', level:'CREATE', msg:'[W1] Proses baris 57 | Game: Clash Royale | Title: Lvl 53|Trophy 8271|KTL 14...' },
+  { id:10016, time:'10:13:02', level:'CREATE', msg:'[W2] Proses baris 58 | Game: Clash Royale | Title: Lvl 66|Trophy 10324|KTL 15...' },
+  { id:10017, time:'10:13:05', level:'CREATE', msg:'[W1] [GM] AI: Accounts -> High-End' },
+  { id:10018, time:'10:13:18', level:'CREATE', msg:'[W1] Total gambar siap upload: 20' },
+  { id:10019, time:'10:13:28', level:'CREATE', msg:'[W1] Baris 57 SUKSES di-listing! Game: Clash Royale | 3 gambar' },
+  { id:10020, time:'07:48:58', level:'DISKON', msg:'LINK!E counter: 1 tab aktif, total 3 PERLU DISCOUNT' },
+  { id:10021, time:'07:48:59', level:'DISKON', msg:"Ketemu PERLU DISCOUNT: sheet='Clash Royale' baris=57" },
+  { id:10022, time:'07:48:59', level:'DISKON', msg:'[W1] Proses baris 57 | Kode: SSR1111 | IDR=Rp 5,844,000 | USD=340.96 | EUR=290.09' },
+  { id:10023, time:'07:49:17', level:'DISKON', msg:'[W1] [GM] Isi harga baru: 340.96...' },
+  { id:10024, time:'07:49:25', level:'DISKON', msg:'[W1] [GM] Harga SSR1111 berhasil diupdate ke 340.96!' },
+  { id:10025, time:'07:49:26', level:'DISKON', msg:'[W1] Baris 57 selesai. AB: All Good | AC: 20/Apr/2026 07:49' },
+];
+
+const initialStats = {
+  DELETE: {
+    allTime: { ELDO:{sukses:0,gagal:1,total:1}, GM:{sukses:15,gagal:10,total:25}, Z2U:{sukses:0,gagal:1,total:1} },
+    today:   { sukses:15, gagal:12, total:27 },
+  },
+  CREATE: {
+    allTime: { 'Clash Royale':{sukses:21,gagal:9,total:30} },
+    today:   { sukses:21, gagal:9, total:30 },
+  },
+  DISKON: {
+    allTime: { GM:{sukses:16,gagal:2,total:18} },
+    today:   { sukses:16, gagal:2, total:18 },
+  },
+};
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StatusDot({ active, pulse }) {
+  return (
+    <span style={{ position:'relative', display:'inline-flex', width:8, height:8 }}>
+      <span style={{
+        display:'inline-block', width:8, height:8, borderRadius:'50%',
+        background: active ? 'var(--success)' : 'var(--surface3)',
+        position:'relative', zIndex:1,
+      }} />
+      {active && pulse && (
+        <span style={{
+          position:'absolute', inset:0, borderRadius:'50%',
+          background: 'var(--success)',
+          animation: 'ping 1.6s cubic-bezier(0,0,0.2,1) infinite',
+        }} />
+      )}
+    </span>
+  );
+}
+
+function Toggle({ on, onToggle, alwaysOn }) {
+  const isOn = alwaysOn || on;
+  const [hov, setHov] = useState(false);
+  return (
+    <div
+      onClick={onToggle}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        width: 40, height: 22, borderRadius: 99,
+        background: isOn ? 'var(--accent)' : 'var(--surface3)',
+        border: `1px solid ${isOn ? 'var(--accent)' : hov ? 'var(--border2)' : 'var(--border)'}`,
+        position: 'relative', cursor: 'pointer',
+        transition: 'background .2s, border-color .2s, box-shadow .2s, transform .2s',
+        flexShrink: 0,
+        boxShadow: isOn ? '0 0 12px var(--accent-glow)' : hov ? '0 0 0 3px rgba(255,255,255,0.06)' : 'none',
+        transform: hov ? 'scale(1.08)' : 'scale(1)',
+      }}
+    >
+      <span style={{
+        position:'absolute', width:16, height:16, borderRadius:'50%',
+        background:'white', top:2, left: isOn ? 20 : 2,
+        transition: 'left .2s', boxShadow:'0 1px 4px rgba(0,0,0,0.4)',
+      }} />
+    </div>
+  );
+}
+
+function BotCard({ label, icon, color, active, running, onToggle, status, progress, taskCount = 0 }) {
+  const colorMap = { blue:'var(--accent)', green:'var(--success)', warning:'var(--warning)', danger:'var(--danger)' };
+  const dimMap = { blue:'var(--accent-dim)', green:'var(--success-dim)', warning:'var(--warning-dim)', danger:'var(--danger-dim)' };
+  const c = colorMap[color] || colorMap.blue;
+  const cdim = dimMap[color] || dimMap.blue;
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!running) { setElapsed(0); return; }
+    setElapsed(0);
+    const id = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  const fmt = (s) => {
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+    if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  };
+
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 350);
+    return () => clearTimeout(t);
+  }, [active, running]);
+
+  const stopped = !active; // active = enabled
+  const cardBg = running ? cdim : stopped ? 'var(--surface2)' : 'rgba(255,255,255,0.03)';
+  const cardBorder = running ? c : stopped ? 'var(--border)' : 'rgba(255,255,255,0.1)';
+  const iconBg = running ? c : stopped ? 'var(--surface3)' : `${c}22`;
+  const iconColor = running ? '#fff' : stopped ? 'var(--text3)' : c;
+
+  return (
+    <div style={{
+      background: cardBg,
+      border: `1px solid ${cardBorder}`,
+      borderRadius: 10, padding: '12px 14px',
+      transition: 'all .2s', marginBottom: 8,
+      opacity: stopped ? 0.55 : 1,
+      animation: flash ? 'flashCard 0.35s ease' : 'none',
+    }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: running ? 10 : 0 }}>
+        <div style={{
+          width:30, height:30, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center',
+          background: iconBg, color: iconColor,
+          transition: 'all .2s',
+        }}>
+          <Icon d={icons[icon]} size={14} strokeWidth={2} />
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+            <div style={{ fontWeight:600, fontSize:13, letterSpacing:'0.02em' }}>{label}</div>
+            {taskCount > 0 && (
+              <span style={{
+                fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono', monospace",
+                color:c, background:`${c}22`, border:`1px solid ${c}40`,
+                borderRadius:4, padding:'0 5px', lineHeight:'14px',
+              }}>{taskCount}</span>
+            )}
+            {!running && !stopped && (
+              <span style={{ position:'relative', display:'inline-flex', width:8, height:8 }}>
+                <span style={{
+                  display:'inline-block', width:8, height:8, borderRadius:'50%',
+                  background:c, position:'relative', zIndex:1,
+                }} />
+                <span style={{
+                  position:'absolute', inset:0, borderRadius:'50%',
+                  background:c,
+                  animation: 'ping 1.6s cubic-bezier(0,0,0.2,1) infinite',
+                }} />
+              </span>
+            )}
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:1 }}>
+            <span style={{ fontSize:11, color: running ? c : stopped ? 'var(--text3)' : `${c}99`, lineHeight:'16px' }}>{status}</span>
+            {running && (
+              <span style={{
+                fontSize:10, fontFamily:"'JetBrains Mono', monospace",
+                color: c, background:`${c}18`, border:`1px solid ${c}30`,
+                borderRadius:4, padding:'0 5px', fontWeight:500, letterSpacing:'0.04em',
+                lineHeight:'1', verticalAlign:'middle', display:'inline-flex', alignItems:'center', height:16,
+              }}>{fmt(elapsed)}</span>
+            )}
+          </div>
+        </div>
+        <Toggle on={active} onToggle={onToggle} />
+      </div>
+      {running && (
+        <div style={{ height:3, borderRadius:99, background:'var(--surface3)', overflow:'hidden', position:'relative' }}>
+          <div style={{
+            position:'absolute', height:'100%', width:'45%', borderRadius:99,
+            background: `linear-gradient(90deg, transparent, ${c}, transparent)`,
+            animation: 'shimmer 1.4s ease-in-out infinite',
+          }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnimatedNum({ value }) {
+  const [display, setDisplay] = useState(value);
+  const [anim, setAnim] = useState(false);
+  const prev = useRef(value);
+  useEffect(() => {
+    if (value !== prev.current) {
+      setAnim(true);
+      setDisplay(value);
+      prev.current = value;
+      setTimeout(() => setAnim(false), 300);
+    }
+  }, [value]);
+  return (
+    <span style={{ display:'inline-block', animation: anim ? 'countUp 0.25s ease' : 'none' }}>
+      {display}
+    </span>
+  );
+}
+
+function StatTable({ stats, tab }) {
+  const data = stats[tab];
+  const platforms = Object.keys(data.allTime);
+  const today = data.today;
+  const allTotal = platforms.reduce((acc, p) => ({
+    sukses: acc.sukses + data.allTime[p].sukses,
+    gagal: acc.gagal + data.allTime[p].gagal,
+    total: acc.total + data.allTime[p].total,
+  }), {sukses:0, gagal:0, total:0});
+
+  const thStyle = { color:'var(--text3)', fontSize:11, fontWeight:500, textAlign:'right', paddingBottom:8, paddingLeft:10, letterSpacing:'0.04em', textTransform:'uppercase' };
+  const tdStyle = { textAlign:'right', padding:'5px 0 5px 10px', fontSize:12 };
+  const cs = (v) => ({ color: v > 0 ? 'var(--success)' : 'var(--text3)', fontWeight:600 });
+  const cg = (v) => ({ color: v > 0 ? 'var(--danger)'  : 'var(--text3)', fontWeight:600 });
+
+  return (
+    <div style={{ background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:10, padding:'14px 16px' }}>
+      <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ ...thStyle, textAlign:'left', paddingLeft:0 }}>Platform</th>
+            <th style={thStyle}>Sukses</th>
+            <th style={thStyle}>Gagal</th>
+            <th style={thStyle}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {platforms.map(p => (
+            <tr key={p} style={{ borderTop:'1px solid var(--border)' }}>
+              <td style={{ ...tdStyle, textAlign:'left', paddingLeft:0, color:'var(--text2)', fontWeight:500 }}>{p}</td>
+              <td style={{ ...tdStyle, ...cs(data.allTime[p].sukses) }}><AnimatedNum value={data.allTime[p].sukses} /></td>
+              <td style={{ ...tdStyle, ...cg(data.allTime[p].gagal) }}><AnimatedNum value={data.allTime[p].gagal} /></td>
+              <td style={{ ...tdStyle, color:'var(--text)', fontWeight:600 }}><AnimatedNum value={data.allTime[p].total} /></td>
+            </tr>
+          ))}
+          <tr style={{ borderTop:'2px solid var(--border2)' }}>
+            <td style={{ ...tdStyle, textAlign:'left', paddingLeft:0, color:'var(--text2)', fontWeight:500, paddingBottom:6, paddingTop:6 }}>Hari Ini</td>
+            <td style={{ ...tdStyle, ...cs(today.sukses), paddingBottom:6 }}><AnimatedNum value={today.sukses} /></td>
+            <td style={{ ...tdStyle, ...cg(today.gagal), paddingBottom:6 }}><AnimatedNum value={today.gagal} /></td>
+            <td style={{ ...tdStyle, color:'var(--text)', fontWeight:600, paddingBottom:6 }}><AnimatedNum value={today.total} /></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr style={{ borderTop:'2px solid var(--border2)' }}>
+            <td style={{ ...tdStyle, textAlign:'left', paddingLeft:0, fontWeight:700, fontSize:12, paddingTop:8 }}>Total</td>
+            <td style={{ ...tdStyle, ...cs(allTotal.sukses), paddingTop:8 }}><AnimatedNum value={allTotal.sukses} /></td>
+            <td style={{ ...tdStyle, ...cg(allTotal.gagal), paddingTop:8 }}><AnimatedNum value={allTotal.gagal} /></td>
+            <td style={{ ...tdStyle, color:'var(--text)', fontWeight:700, paddingTop:8 }}><AnimatedNum value={allTotal.total} /></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function LogEntry({ entry, showTimestamps, fontSize }) {
+  const levelColors = { APP:'var(--accent)', DELETE:'var(--danger)', CREATE:'var(--success)', DISKON:'var(--warning)', ERR:'var(--danger)', OK:'var(--success)', WARN:'var(--warning)', SYS:'var(--text3)' };
+  const c = levelColors[entry.level] || 'var(--text2)';
+  const [hov, setHov] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display:'flex', alignItems:'flex-start', gap:10, padding:'5px 16px',
+        borderBottom:'1px solid var(--border)',
+        background: hov ? 'rgba(255,255,255,0.03)' : 'transparent',
+        cursor:'default', transition:'background .1s',
+        fontSize, lineHeight:1.5, fontFamily:"'JetBrains Mono', monospace",
+      }}>
+      {showTimestamps && (
+        <span style={{ color:'var(--text3)', flexShrink:0, userSelect:'none', fontSize: fontSize - 1 }}>{entry.time}</span>
+      )}
+      <span style={{
+        color: c, flexShrink:0, fontSize: fontSize - 1,
+        background: `${c}18`, border:`1px solid ${c}30`,
+        borderRadius:4, padding:'0 5px', lineHeight:'18px',
+        fontWeight:500, letterSpacing:'0.04em',
+      }}>{entry.level}</span>
+      <span style={{ color:'oklch(0.62 0.02 250)', flex:1, wordBreak:'break-all' }}>{entry.msg}</span>
+    </div>
+  );
+}
+
+function ActionBtn({ icon, label, onClick, variant = 'default', blink }) {
+  const [hov, setHov] = useState(false);
+  const variants = {
+    default: { bg: hov ? 'var(--surface3)' : 'var(--surface2)', border: 'var(--border)', color: 'var(--text2)' },
+    primary: { bg: hov ? 'oklch(0.62 0.22 255 / 0.25)' : 'var(--accent-dim)', border: hov ? 'var(--accent)' : 'oklch(0.62 0.22 255 / 0.35)', color: 'var(--accent)' },
+    danger:  { bg: hov ? 'oklch(0.65 0.22 20)' : 'var(--danger-dim)', border: 'var(--danger)', color: 'var(--danger)' },
+    success: { bg: hov ? 'var(--success-dim)' : 'var(--surface2)', border: hov ? 'var(--success)' : 'var(--border)', color: hov ? 'var(--success)' : 'var(--text2)' },
+    warning: { bg: hov ? 'var(--warning-dim)' : 'var(--surface2)', border: hov ? 'var(--warning)' : 'var(--border)', color: hov ? 'var(--warning)' : 'var(--text2)' },
+    purple:  { bg: hov ? 'oklch(0.55 0.18 285 / 0.18)' : 'var(--surface2)', border: hov ? 'oklch(0.62 0.18 285)' : 'var(--border)', color: hov ? 'oklch(0.72 0.18 285)' : 'var(--text2)' },
+  };
+  const v = variants[variant];
+  const blinkStyle = blink ? { filter:'brightness(1.8)', transform:'scale(0.96)' } : {};
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display:'flex', alignItems:'center', gap:6,
+        background: v.bg, border:`1px solid ${v.border}`,
+        color: v.color, borderRadius: 6,
+        padding:'7px 13px', cursor:'pointer', fontFamily:'inherit',
+        fontSize:12, fontWeight:500, transition:'all .15s',
+        whiteSpace:'nowrap', ...blinkStyle,
+      }}
+    >
+      {icon && <Icon d={icons[icon]} size={13} strokeWidth={2} />}
+      {label}
+    </button>
+  );
+}
+
+function MinusBtn({ onClick, disabled }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button onClick={onClick} disabled={disabled}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{
+      background: disabled ? 'none' : (hov ? 'var(--surface3)' : 'none'), border:'none',
+      color: disabled ? 'var(--text4, #444)' : (hov ? 'var(--text)' : 'var(--text3)'),
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? 0.35 : 1,
+      padding:'5px 9px', fontSize:14, lineHeight:1, transition:'all .15s',
+    }}>−</button>
+  );
+}
+
+function PlusBtn({ onClick, disabled }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button onClick={onClick} disabled={disabled}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{
+      background: disabled ? 'none' : (hov ? 'var(--surface3)' : 'none'), border:'none',
+      color: disabled ? 'var(--text4, #444)' : (hov ? 'var(--text)' : 'var(--text3)'),
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? 0.35 : 1,
+      padding:'5px 9px', fontSize:14, lineHeight:1, transition:'all .15s',
+    }}>+</button>
+  );
+}
+
+function NumberInput({ label, icon, value, onChange, min = 1, max = 10 }) {
+  const atMin = value <= min;
+  const atMax = value >= max;
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+        {icon && <Icon d={icons[icon]} size={12} stroke="var(--text3)" />}
+        <span style={{ fontSize:11, color:'var(--text3)', whiteSpace:'nowrap' }}>Workers {label}</span>
+      </div>
+      <div style={{
+        display:'flex', alignItems:'center',
+        background:'var(--surface2)', border:'1px solid var(--border2)',
+        borderRadius: 6, overflow:'hidden',
+      }}>
+        <MinusBtn disabled={atMin} onClick={() => { if (!atMin) onChange(Math.max(min, value-1)); }} />
+        <span style={{ color:'var(--text)', fontWeight:600, minWidth:24, textAlign:'center', fontSize:12 }}>{value}</span>
+        <PlusBtn disabled={atMax} onClick={() => { if (!atMax) onChange(Math.min(max, value+1)); }} />
+      </div>
+    </div>
+  );
+}
+
+function WinBtn({ label, title, hoverBg, hoverColor = 'var(--text)', fs, onClick }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        width:46, height:'var(--header-h)', display:'flex', alignItems:'center',
+        justifyContent:'center', background: hov ? hoverBg : 'transparent',
+        border:'none', color: hov && hoverColor ? hoverColor : 'var(--text2)',
+        cursor:'pointer', fontSize: fs || 13, fontFamily:'inherit',
+        transition:'background .15s, color .15s', flexShrink:0,
+      }}
+    >{label}</button>
+  );
+}
+
+function Toast({ toasts, onDismiss }) {
+  return (
+    <div style={{ position:'fixed', top:64, right:16, zIndex:9999, display:'flex', flexDirection:'column', gap:8, pointerEvents:'none' }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          display:'flex', alignItems:'center', gap:10,
+          background:'var(--surface2)', border:`1px solid ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}40`,
+          borderLeft:`3px solid ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}`,
+          borderRadius:8, padding:'10px 14px', minWidth:312, maxWidth:408,
+          boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
+          animation:'toastIn .25s ease',
+          pointerEvents:'all',
+        }}>
+          <span style={{ position:'relative', display:'inline-flex', width:8, height:8, flexShrink:0 }}>
+            <span style={{
+              display:'inline-block', width:8, height:8, borderRadius:'50%',
+              background: t.type==='ok' ? 'var(--success)' : 'var(--danger)',
+              boxShadow:`0 0 6px ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}`,
+              position:'relative', zIndex:1,
+            }} />
+            <span style={{
+              position:'absolute', inset:0, borderRadius:'50%',
+              background: t.type==='ok' ? 'var(--success)' : 'var(--danger)',
+              animation: 'ping 1.6s cubic-bezier(0,0,0.2,1) infinite',
+            }} />
+          </span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:11, fontWeight:600, color: t.type==='ok' ? 'var(--success)' : 'var(--danger)', marginBottom:2 }}>
+              {t.type==='ok' ? '✓ Sukses' : '✕ Error'}
+            </div>
+            <div style={{ fontSize:11, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.msg}</div>
+          </div>
+          <button onClick={() => onDismiss(t.id)} style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:14, padding:'0 2px', flexShrink:0 }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+function App() {
+  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+
+  const addToast = useCallback((type, msg) => {
+    const id = ++toastIdRef.current;
+    setToasts(prev => [...prev.slice(-3), { id, type, msg }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 10000);
+  }, []);
+
+  const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+  const [activeTab, setActiveTab] = useState('CREATE');
+  const [logs, setLogs] = useState([]);
+  const [stats, setStats] = useState({
+    DELETE: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
+    CREATE: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
+    DISKON: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
+  });
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const [maxCreate, setMaxCreate] = useState(3);
+  const [maxDiskon, setMaxDiskon] = useState(5);
+  const [workers, setWorkers] = useState([]);
+  const [bots, setBots] = useState({
+    DELETE: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'danger',  icon: 'delete' },
+    CREATE: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'green',   icon: 'create' },
+    DISKON: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'warning', icon: 'diskon' },
+  });
+  const logRef = useRef(null);
+  const logIdRef = useRef(50000);
+
+  // Auto-switch Statistik tab ke bot yg sedang running.
+  // Kalau tidak ada yg running -> biarkan user tetap di tab pilihan terakhirnya.
+  useEffect(() => {
+    const runningKey = Object.keys(bots).find(k => bots[k].active);
+    if (runningKey && runningKey !== activeTab) setActiveTab(runningKey);
+  }, [bots]);
+
+  // ── Python bridge: listen for CustomEvents dispatched by global window.* ──
+  useEffect(() => {
+    const onLogBatch = (e) => {
+      const entries = Array.isArray(e.detail) ? e.detail : [e.detail];
+      if (!entries.length) return;
+      setLogs(prev => {
+        const appended = entries.map(entry => ({
+          id: ++logIdRef.current,
+          time: entry.time || now(),
+          level: entry.level || 'SYS',
+          msg: entry.msg || '',
+        }));
+        // Toast triggers on newly arrived outcome entries.
+        // Strategi: match marker ✅/❌ (CREATE report, DISKON "AB: ✅..."),
+        // + pola DELETE (tanpa emoji native: "berhasil dihapus/cancel/offline" & "Gagal:").
+        for (const entry of appended) {
+          const clean = (entry.msg || '').replace(/\[W\d+\]\s*/, '');
+          const lvl = entry.level || '';
+          let toasted = false;
+          if (clean.includes('✅')) { addToast('ok', clean); toasted = true; }
+          else if (clean.includes('❌')) { addToast('err', clean); toasted = true; }
+          else if (lvl === 'DELETE') {
+            const okMatch = clean.match(/^\[([A-Z0-9]+)\].*berhasil (dihapus|di-cancel|di-offline)/);
+            const failMatch = clean.match(/^\[([A-Z0-9]+)\]\s*Gagal:\s*(.+)$/);
+            if (okMatch) { addToast('ok', `✅ ${okMatch[1]} berhasil ${okMatch[2]}`); toasted = true; }
+            else if (failMatch) { addToast('err', `❌ ${failMatch[1]}: ${failMatch[2]}`); toasted = true; }
+          }
+          if (!toasted && lvl === 'ERR') addToast('err', clean);
+        }
+        const capped = [...prev, ...appended];
+        return capped.length > 200 ? capped.slice(-200) : capped;
+      });
+    };
+
+    const onState = (e) => {
+      const s = e.detail || {};
+      if (typeof s.connected === 'boolean') setConnected(s.connected);
+      if (Array.isArray(s.workers)) setWorkers(s.workers);
+      if (s.stats && typeof s.stats === 'object') setStats(prev => ({ ...prev, ...s.stats }));
+      if (typeof s.maxCreate === 'number') setMaxCreate(Math.min(10, Math.max(1, s.maxCreate)));
+      if (typeof s.maxDiskon === 'number') setMaxDiskon(Math.min(10, Math.max(1, s.maxDiskon)));
+      if (s.bots && typeof s.bots === 'object') {
+        setBots(prev => {
+          const next = { ...prev };
+          Object.keys(s.bots).forEach(k => {
+            if (next[k]) {
+              next[k] = { ...next[k],
+                enabled: !!s.bots[k].enabled,
+                active:  !!s.bots[k].active,
+                status:  s.bots[k].status || next[k].status,
+                taskCount: typeof s.bots[k].taskCount === 'number' ? s.bots[k].taskCount : (next[k].taskCount || 0),
+              };
+            }
+          });
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('bot-log-batch', onLogBatch);
+    window.addEventListener('bot-state', onState);
+    return () => {
+      window.removeEventListener('bot-log-batch', onLogBatch);
+      window.removeEventListener('bot-state', onState);
+    };
+  }, [addToast]);
+
+  useEffect(() => {
+    if (autoScroll && logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  const api = () => (window.pywebview && window.pywebview.api) || null;
+
+  const toggleBot = (key) => {
+    const bot = bots[key];
+    const nextEnabled = !bot.enabled;
+    // Optimistic UI: Python will re-push authoritative state on next tick
+    setBots(prev => ({
+      ...prev,
+      [key]: { ...prev[key], enabled: nextEnabled,
+               active: nextEnabled ? prev[key].active : false,
+               status: nextEnabled ? 'Standby' : 'Stopped' },
+    }));
+    const a = api();
+    if (a && a.toggle_bot) a.toggle_bot(key, nextEnabled);
+  };
+
+  const [testing, setTesting] = useState(false);
+  const [blinking, setBlinking] = useState({});
+
+  const blink = (key) => {
+    setBlinking(b => ({ ...b, [key]: true }));
+    setTimeout(() => setBlinking(b => ({ ...b, [key]: false })), 400);
+  };
+
+  const testConnection = async () => {
+    setTesting(true);
+    blink('test');
+    const a = api();
+    if (a && a.test_connection) {
+      try { await a.test_connection(); } catch (_) {}
+    }
+    setTimeout(() => setTesting(false), 400);
+  };
+
+  const forceScan = async () => {
+    blink('scan');
+    const a = api();
+    if (a && a.force_scan) { try { await a.force_scan(); } catch (_) {} }
+  };
+
+  const openLogFolder = async () => {
+    blink('log');
+    const a = api();
+    if (a && a.open_log_folder) { try { await a.open_log_folder(); } catch (_) {} }
+  };
+
+  const openSheets = async () => {
+    blink('sheets');
+    const a = api();
+    if (a && a.open_sheets) { try { await a.open_sheets(); } catch (_) {} }
+  };
+
+  const onChangeMaxCreate = (v) => {
+    setMaxCreate(v);
+    const a = api();
+    if (a && a.set_max_create) { try { a.set_max_create(v); } catch (_) {} }
+  };
+
+  const onChangeMaxDiskon = (v) => {
+    setMaxDiskon(v);
+    const a = api();
+    if (a && a.set_max_diskon) { try { a.set_max_diskon(v); } catch (_) {} }
+  };
+
+  const clearLogs = () => setLogs([]);
+
+  const applyTweak = (key, val) => {
+    const next = { ...tweaks, [key]: val };
+    setTweaks(next);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: next }, '*');
+  };
+
+  useEffect(() => {
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    });
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  }, []);
+
+  const fontSize = tweaks.logFontSize;
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <style>{`
+        @keyframes ping {
+          75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        @keyframes shimmer {
+          0% { left: -50%; }
+          100% { left: 110%; }
+        }
+        @keyframes toastIn {
+          from { opacity:0; transform: translateX(20px); }
+          to   { opacity:1; transform: translateX(0); }
+        }
+        @keyframes borderPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        @keyframes flashCard {
+          0% { opacity:1; } 30% { opacity:0.5; } 100% { opacity:1; }
+        }
+        @keyframes countUp {
+          from { transform: translateY(6px); opacity:0; }
+          to   { transform: translateY(0); opacity:1; }
+        }
+        .tab-btn { background:none; border:none; cursor:pointer; font-family:inherit; }
+        .tab-btn:focus { outline: none; }
+      `}</style>
+
+      <Toast toasts={toasts} onDismiss={dismissToast} />
+
+      {/* ── BODY ── */}
+      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+
+        {/* ── SIDEBAR ── */}
+        <aside style={{
+          width:'var(--sidebar-width)', borderRight:'1px solid var(--border)',
+          background:'var(--surface)', display:'flex', flexDirection:'column',
+          overflow:'hidden', flexShrink:0, position:'relative',
+        }}>
+          <div style={{ flex:1, overflow:'auto', padding:'14px 12px' }}>
+
+            {/* Bot controls section */}
+            <div style={{ marginBottom:16 }}>
+              <SectionLabel>Bot Controls</SectionLabel>
+              {Object.keys(bots).map(key => (
+                <BotCard
+                  key={key}
+                  label={key}
+                  icon={bots[key].icon}
+                  color={bots[key].color}
+                  running={bots[key].active}
+                  active={bots[key].enabled}
+                  status={bots[key].active ? 'Running' : bots[key].enabled ? 'Standby' : 'Stopped'}
+                  progress={bots[key].progress}
+                  taskCount={bots[key].taskCount || 0}
+                  onToggle={() => toggleBot(key)}
+                />
+              ))}
+            </div>
+
+            {/* Stats section */}
+            <div style={{ marginBottom:16 }}>
+              <SectionLabel>Statistik</SectionLabel>
+              {/* Tab switcher */}
+              <div style={{
+                display:'flex', gap:2, marginBottom:10,
+                background:'var(--surface3)', borderRadius:8, padding:3,
+              }}>
+                {['DELETE','CREATE','DISKON'].map(t => {
+                  const isActive = activeTab === t;
+                  const [hov, setHov] = React.useState(false);
+                  return (
+                    <button key={t} className="tab-btn"
+                      onClick={() => setActiveTab(t)}
+                      onMouseEnter={() => setHov(true)}
+                      onMouseLeave={() => setHov(false)}
+                      style={{
+                        flex:1, padding:'5px 0', borderRadius:6, fontSize:11, fontWeight:600,
+                        letterSpacing:'0.04em', transition:'all .15s',
+                        background: isActive ? 'var(--surface2)' : hov ? 'rgba(255,255,255,0.05)' : 'transparent',
+                        color: isActive ? 'var(--text)' : hov ? 'var(--text2)' : 'var(--text3)',
+                        boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.3)' : 'none',
+                      }}
+                    >{t}</button>
+                  );
+                })}
+              </div>
+              <StatTable stats={stats} tab={activeTab} />
+            </div>
+
+            {/* Worker status */}
+            <div>
+              <SectionLabel>
+                Worker Status{workers.length > 0 && <span style={{ color:'var(--text3)', fontWeight:500, marginLeft:4 }}>({workers.length})</span>}
+              </SectionLabel>
+              <div style={{
+                background:'var(--surface2)', border:'1px solid var(--border)',
+                borderRadius: 10, overflow:'hidden',
+                maxHeight: 220, overflowY: workers.length > 6 ? 'auto' : 'visible',
+              }}>
+                {workers.length === 0 ? (
+                  <div style={{
+                    display:'flex', alignItems:'center', gap:6,
+                    color:'var(--text3)', fontSize:11, padding:'9px 12px',
+                  }}>
+                    <Icon d={icons.worker} size={12} stroke="var(--text3)" />
+                    No active workers
+                  </div>
+                ) : workers.map((w, i) => (
+                  <WorkerRow key={w.id} w={w} i={i} total={workers.length} />
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* Scroll fade indicator */}
+          <div style={{
+            position:'absolute', bottom:0, left:0, right:0, height:40,
+            background:'linear-gradient(to bottom, transparent, var(--surface))',
+            pointerEvents:'none',
+          }} />
+        </aside>
+
+        {/* ── MAIN LOG ── */}
+        <main style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background: 'var(--bg)' }}>
+          {/* Log header */}
+          <div style={{
+            display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'10px 16px', borderBottom:'1px solid var(--border)',
+            background:'var(--surface)', flexShrink:0,
+          }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <StatusDot active pulse />
+              <span style={{ fontSize:12, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text2)' }}>Live Log</span>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{
+                display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
+                background: connected ? 'var(--success-dim)' : 'var(--danger-dim)',
+                border: `1px solid ${connected ? 'var(--success)' : 'var(--danger)'}30`,
+                borderRadius:99, fontSize:11, fontWeight:500,
+                color: connected ? 'var(--success)' : 'var(--danger)',
+              }}>
+                <StatusDot active={connected} pulse />
+                {connected ? 'Connected' : 'Disconnected'}
+              </div>
+              <div style={{
+                display:'flex', alignItems:'center', gap:4, padding:'4px 10px',
+                background:'var(--surface2)', border:'1px solid var(--border)',
+                borderRadius:99, fontSize:11, color:'var(--text3)',
+              }}>
+                <Icon d={icons.clock} size={12} stroke="var(--text3)" />
+                <ClockDisplay />
+              </div>
+              <div style={{ width:1, height:18, background:'var(--border)' }} />
+              <AlwaysOnTopBtn onTop={alwaysOnTop} onToggle={() => {
+                const next = !alwaysOnTop;
+                setAlwaysOnTop(next);
+                try { window.pywebview?.api?.set_always_on_top(next); } catch (e) {}
+              }} />
+              <AutoScrollBtn autoScroll={autoScroll} onToggle={() => setAutoScroll(v => !v)} />
+              <ClearBtn onClear={clearLogs} />
+            </div>
+          </div>
+
+          {/* Log body */}
+          <div ref={logRef} style={{ flex:1, overflow:'auto', paddingTop:4 }}>
+            {logs.map(entry => (
+              <LogEntry key={entry.id} entry={entry} showTimestamps={tweaks.showTimestamps} fontSize={fontSize} />
+            ))}
+          </div>
+        </main>
+      </div>
+
+      {/* ── FOOTER ── */}
+      <footer style={{
+        height:'var(--footer-h)', display:'flex', alignItems:'center',
+        padding:'0 14px', borderTop:'1px solid var(--border)',
+        background:'var(--surface)', gap:8, flexShrink:0, overflow:'hidden',
+      }}>
+        <ActionBtn icon="link" label={testing ? 'Connecting...' : 'Test Connection'} onClick={testConnection} variant='success' blink={blinking['test']} />
+        <ActionBtn icon="log" label="Buka Log" onClick={openLogFolder} variant="warning" blink={blinking['log']} />
+        <ActionBtn icon="sheets" label="Google Sheets" onClick={openSheets} variant="purple" blink={blinking['sheets']} />
+        <ActionBtn icon="scan" label={blinking['scan'] ? 'Scanning...' : 'Force Scan'} onClick={forceScan} variant="primary" blink={blinking['scan']} />
+        <div style={{ flex:1 }} />
+        <NumberInput label="Create" icon="worker" value={maxCreate} onChange={onChangeMaxCreate} />
+        <div style={{ width:1, height:22, background:'var(--border)' }} />
+        <NumberInput label="Diskon" icon="worker" value={maxDiskon} onChange={onChangeMaxDiskon} />
+      </footer>
+
+      {/* ── TWEAKS ── */}
+      <div className={`tweaks-panel ${tweaksOpen ? 'open' : ''}`}>
+        <div className="tweaks-title">Tweaks</div>
+        <div className="tweak-row">
+          <span className="tweak-label">Log font size</span>
+          <select className="tweak-select" value={tweaks.logFontSize} onChange={e => applyTweak('logFontSize', +e.target.value)}>
+            {[10,11,12,13,14].map(v => <option key={v} value={v}>{v}px</option>)}
+          </select>
+        </div>
+        <div className="tweak-row">
+          <span className="tweak-label">Show timestamps</span>
+          <div className={`toggle-sw ${tweaks.showTimestamps ? 'on' : ''}`} onClick={() => applyTweak('showTimestamps', !tweaks.showTimestamps)} />
+        </div>
+        <div className="tweak-row">
+          <span className="tweak-label">Compact mode</span>
+          <div className={`toggle-sw ${tweaks.compactMode ? 'on' : ''}`} onClick={() => applyTweak('compactMode', !tweaks.compactMode)} />
+        </div>
+        <div className="tweak-row">
+          <span className="tweak-label">Accent color</span>
+          <select className="tweak-select" value={tweaks.accentColor} onChange={e => {
+            const map = { blue:'255', purple:'285', teal:'195', orange:'50' };
+            document.documentElement.style.setProperty('--accent', `oklch(0.62 0.22 ${map[e.target.value]})`);
+            document.documentElement.style.setProperty('--accent-dim', `oklch(0.62 0.22 ${map[e.target.value]} / 0.15)`);
+            document.documentElement.style.setProperty('--accent-glow', `oklch(0.62 0.22 ${map[e.target.value]} / 0.3)`);
+            applyTweak('accentColor', e.target.value);
+          }}>
+            <option value="blue">Blue</option>
+            <option value="purple">Purple</option>
+            <option value="teal">Teal</option>
+            <option value="orange">Orange</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkerRow({ w, i, total }) {
+  const [hov, setHov] = useState(false);
+  const url = w.url || '';
+  const handleClick = (e) => {
+    e.preventDefault();
+    if (!url) return;
+    const api = window.pywebview && window.pywebview.api;
+    if (api && api.open_url) { try { api.open_url(url); } catch (_) {} }
+  };
+  return (
+    <a
+      href={url || '#'}
+      onClick={handleClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display:'flex', alignItems:'center', gap:8,
+        padding:'5px 10px', textDecoration:'none',
+        background: hov ? 'oklch(0.62 0.22 255 / 0.12)' : w.highlight ? 'oklch(0.62 0.22 255 / 0.08)' : 'transparent',
+        borderBottom: i < total-1 ? '1px solid var(--border)' : 'none',
+        borderLeft: `2px solid ${hov ? 'var(--accent)' : w.highlight ? 'var(--accent)' : 'transparent'}`,
+        animation: w.highlight && !hov ? 'borderPulse 2s ease-in-out infinite' : 'none',
+        cursor:'pointer', transition:'all .15s', minHeight:0,
+      }}
+    >
+      <span style={{
+        fontSize:10, fontWeight:700, color:'var(--accent)',
+        fontFamily:"'JetBrains Mono', monospace", flexShrink:0,
+      }}>{String(w.id).replace(/^W/, 'Worker ')}</span>
+      <span style={{
+        flex:1, fontSize:11, color:'var(--text)', fontWeight:500,
+        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0,
+      }}>{w.game}</span>
+      <span style={{
+        fontSize:10, color: hov ? 'var(--accent)' : 'var(--text3)',
+        fontFamily:"'JetBrains Mono', monospace", flexShrink:0, transition:'color .15s',
+      }}>r{w.row}</span>
+      <span style={{
+        fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono', monospace",
+        color: hov ? 'var(--accent)' : 'var(--text3)',
+        transform: hov ? 'translateX(2px)' : 'none',
+        transition:'all .15s', flexShrink:0,
+      }}>{'→'}</span>
+    </a>
+  );
+}
+
+function AlwaysOnTopBtn({ onTop, onToggle }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button onClick={onToggle} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      title={onTop ? 'Disable Always on Top' : 'Enable Always on Top'} style={{
+      display:'flex', alignItems:'center', gap:5, padding:'4px 10px',
+      background: onTop ? 'oklch(0.72 0.18 78 / 0.08)' : hov ? 'var(--surface3)' : 'var(--surface2)',
+      border: `1px solid ${onTop ? 'oklch(0.72 0.18 78 / 0.5)' : hov ? 'var(--border2)' : 'var(--border)'}`,
+      borderRadius:6,
+      color: onTop ? 'oklch(0.75 0.10 78)' : hov ? 'var(--text)' : 'var(--text3)',
+      cursor:'pointer', fontSize:11, fontWeight:500, fontFamily:'inherit', transition:'all .15s',
+      boxShadow: onTop && hov ? '0 0 0 3px oklch(0.72 0.18 78 / 0.15)' : 'none',
+    }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V5a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+      </svg>
+      On Top {onTop ? 'ON' : 'OFF'}
+    </button>
+  );
+}
+
+function AutoScrollBtn({ autoScroll, onToggle }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button onClick={onToggle} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{
+      display:'flex', alignItems:'center', gap:5, padding:'4px 10px',
+      background: autoScroll ? 'var(--accent-dim)' : hov ? 'var(--surface3)' : 'var(--surface2)',
+      border: `1px solid ${autoScroll ? 'var(--accent)' : hov ? 'var(--border2)' : 'var(--border)'}`,
+      borderRadius:6,
+      color: autoScroll ? 'var(--accent)' : hov ? 'var(--text)' : 'var(--text3)',
+      cursor:'pointer', fontSize:11, fontWeight:500, fontFamily:'inherit', transition:'all .15s',
+      boxShadow: autoScroll && hov ? '0 0 0 3px var(--accent-glow)' : 'none',
+    }}>Auto-scroll {autoScroll ? 'ON' : 'OFF'}</button>
+  );
+}
+
+function ClearBtn({ onClear }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button onClick={onClear} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{
+      display:'flex', alignItems:'center', gap:5, padding:'4px 10px',
+      background: hov ? 'var(--surface3)' : 'var(--surface2)',
+      border: `1px solid ${hov ? 'var(--border2)' : 'var(--border)'}`,
+      borderRadius:6, color: hov ? 'var(--text)' : 'var(--text3)',
+      cursor:'pointer', fontSize:11, fontFamily:'inherit', transition:'all .15s',
+    }}>Clear</button>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.09em',
+      color:'var(--text3)', marginBottom:8, paddingLeft:2,
+    }}>{children}</div>
+  );
+}
+
+const APP_START_TS = Date.now();
+function ClockDisplay() {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    const tick = () => setT(Math.floor((Date.now() - APP_START_TS) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+  const h = String(Math.floor(t / 3600)).padStart(2, '0');
+  const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+  const s = String(t % 60).padStart(2, '0');
+  return <span style={{ fontFamily:"'JetBrains Mono', monospace", fontSize:11 }}>{`${h}:${m}:${s}`}</span>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

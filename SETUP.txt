@@ -1,0 +1,96 @@
+============================================================
+  Bot Manage Listing - PANDUAN SETUP & UPDATE
+============================================================
+
+========================================
+A. DEV PC (KAMU) - SETUP SEKALI
+========================================
+
+1. GitHub CLI sudah ke-install (https://cli.github.com/) - SUDAH.
+
+2. Login ke GitHub (sekali seumur hidup):
+   Buka CMD di folder c:\Bot_AI_Poster, jalankan:
+
+       gh auth login
+
+   Pilih:
+   - GitHub.com
+   - HTTPS
+   - Login with a web browser
+   - Tekan Enter, copy kode yang muncul, paste di browser
+   - Authorize
+
+3. Inisialisasi repo (sekali seumur hidup):
+   Buka CMD di folder c:\Bot_AI_Poster, jalankan PERSIS:
+
+       git init
+       git branch -M main
+       git add .
+       git commit -m "Initial commit"
+       gh repo create tbg-poster --public --source=. --push
+
+   Setelah ini repo sudah live di: https://github.com/hendrowiakto/tbg-poster
+
+
+========================================
+B. DEV PC (KAMU) - TIAP UPDATE
+========================================
+
+Edit kode seperti biasa, lalu double-click: release.bat
+
+Script otomatis:
+  1. Commit perubahan kode (akan minta pesan commit, Enter = auto)
+  2. Build EXE
+  3. Push kode ke GitHub
+  4. Upload EXE ke GitHub Releases dengan tag waktu
+
+Total waktu: ~2 menit.
+
+========================================
+C. OFFICE PC - SETUP SEKALI
+========================================
+
+Di PC kantor, bikin folder baru (contoh: c:\Bot_AI_Poster\),
+lalu copy file berikut ke dalamnya (sekali seumur hidup):
+
+  Dari dev PC:
+    - Bot Manage Listing.exe  (hasil build release.bat pertama)
+    - update.bat
+    - icon.ico
+
+  Bikin manual di office PC (isi sesuai PC itu):
+    - config.txt         (SPREADSHEET_ID, GEMINI_API_KEY, CHROME_PATH, dll)
+    - credentials.json   (service account Google untuk PC itu)
+
+Double-click "Bot Manage Listing.exe" untuk run pertama kali.
+Tes sampai yakin bot jalan normal.
+
+SELESAI. Office PC tidak perlu install Python, git, atau apapun.
+
+========================================
+D. OFFICE PC - TIAP UPDATE
+========================================
+
+Double-click: update.bat
+
+Selesai. (~30 detik, bot auto-launch dengan versi terbaru.)
+
+========================================
+E. TROUBLESHOOTING
+========================================
+
+"Download gagal" di office PC:
+  - Cek koneksi internet
+  - Cek URL masih hidup: https://github.com/hendrowiakto/tbg-poster/releases/latest
+
+"Gagal replace EXE" di office PC:
+  - Bot masih jalan, tutup dulu window-nya lalu klik update.bat lagi
+
+"gh: command not found" saat release.bat:
+  - GitHub CLI belum ke-install, download: https://cli.github.com/
+
+Rollback ke versi lama (kalau update bikin bot error):
+  - Buka https://github.com/hendrowiakto/tbg-poster/releases
+  - Klik versi lama yang stabil
+  - Download EXE, rename jadi "Bot Manage Listing.exe"
+  - Copy ke folder office PC (overwrite)
