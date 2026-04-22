@@ -30,6 +30,7 @@ else:
 
 CONFIG_FILE      = os.path.join(SCRIPT_DIR, "config.txt")
 CREDENTIALS_FILE = os.path.join(SCRIPT_DIR, "credentials.json")
+VERSION_FILE     = os.path.join(SCRIPT_DIR, "VERSION.txt")
 LOG_DIR          = os.path.join(SCRIPT_DIR, "log")
 
 BOT_NAMES = ("delete", "create", "diskon")
@@ -67,9 +68,40 @@ def call_with_timeout(fn, args=(), kwargs=None, timeout=60, name="task"):
     return holder.get("result")
 
 
+# ===================== VERSION =====================
+def read_version():
+    """Baca VERSION.txt (2 baris: version, release date YYYY-MM-DD).
+    Return (version_str, date_str). Fallback ("", "") kalau file missing/rusak.
+    Di-update oleh release.bat tiap rilis — di git, tidak per-PC."""
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8") as f:
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+        version = lines[0] if len(lines) >= 1 else ""
+        date    = lines[1] if len(lines) >= 2 else ""
+        return version, date
+    except Exception:
+        return "", ""
+
+
+def format_release_date(raw):
+    """Konversi 'YYYY-MM-DD' -> '22 Apr 2026' (English month abbrev, biar pendek).
+    Return '' kalau raw kosong/invalid."""
+    if not raw:
+        return ""
+    try:
+        y, m, d = raw.split("-")
+        months = ("Jan","Feb","Mar","Apr","May","Jun",
+                  "Jul","Aug","Sep","Oct","Nov","Dec")
+        return f"{int(d)} {months[int(m)-1]} {y}"
+    except Exception:
+        return raw
+
+
 # ===================== CONFIG =====================
 CONFIG_TEMPLATE = """# ============ APP ============
-APP_VERSION=1.0.0
+# INSTANCE_NAME = suffix di title window (per-PC). Contoh: POSTER 1, POSTER 2.
+# Kosongkan kalau tidak perlu suffix.
+INSTANCE_NAME=
 
 # ============ GOOGLE SHEETS ============
 SPREADSHEET_ID=ISI_ID_SPREADSHEET_DISINI

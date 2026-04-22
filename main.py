@@ -20,10 +20,9 @@ import threading
 from shared import (
     Config, BotContext, validate_config,
     SCRIPT_DIR, LOG_DIR, BOT_NAMES,
+    read_version,
 )
 from webview_app import WebviewApp
-
-APP_VERSION_FALLBACK = "1.0.0"
 
 # ===================== ORCHESTRATOR =====================
 def prescan_link(ctx):
@@ -277,7 +276,11 @@ def main():
     for _b in BOT_NAMES:
         ctx.toggles.set(_b, True)
 
-    ctx.logger.log("app", f"Bot Manage Listing v{config.get('APP_VERSION', APP_VERSION_FALLBACK)} start")
+    _ver, _ = read_version()
+    _instance = config.get("INSTANCE_NAME", "").strip()
+    _title_suffix = f" {_instance}" if _instance else ""
+    _ver_log = f" v{_ver}" if _ver else ""
+    ctx.logger.log("app", f"Bot Manage Listing{_title_suffix}{_ver_log} start")
 
     # Launch Chrome + connect Sheets (sync at startup). Kalau gagal, orchestrator
     # akan retry otomatis tiap iterasi (lihat orchestrator_loop -> auto-reconnect).
@@ -298,8 +301,7 @@ def main():
     threading.Thread(target=orchestrator_loop, args=(ctx,),
                      daemon=True, name="orchestrator").start()
 
-    app = WebviewApp(ctx, title=f"Bot Manage Listing v"
-                     f"{config.get('APP_VERSION', APP_VERSION_FALLBACK)}")
+    app = WebviewApp(ctx, title=f"Bot Manage Listing{_title_suffix}")
     app.run()
 
 

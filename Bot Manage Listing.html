@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bot Manage Listing v1.0.2</title>
+<title>Bot Manage Listing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
@@ -585,6 +585,7 @@ function App() {
   });
   const [autoScroll, setAutoScroll] = useState(true);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const [appInfo, setAppInfo] = useState({ version: '', releaseDate: '' });
   const [maxCreate, setMaxCreate] = useState(3);
   const [maxDiskon, setMaxDiskon] = useState(5);
   const [workers, setWorkers] = useState([]);
@@ -675,6 +676,29 @@ function App() {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [logs, autoScroll]);
+
+  // Fetch version+releaseDate sekali saat pywebview bridge ready.
+  useEffect(() => {
+    let cancelled = false;
+    let tries = 0;
+    const poll = () => {
+      if (cancelled) return;
+      const a = (window.pywebview && window.pywebview.api) || null;
+      if (a && a.get_app_info) {
+        a.get_app_info().then(info => {
+          if (cancelled || !info) return;
+          setAppInfo({
+            version: info.version || '',
+            releaseDate: info.releaseDate || '',
+          });
+        }).catch(() => {});
+        return;
+      }
+      if (tries++ < 40) setTimeout(poll, 150);
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, []);
 
   const api = () => (window.pywebview && window.pywebview.api) || null;
 
@@ -946,6 +970,16 @@ function App() {
         <NumberInput label="Create" icon="worker" value={maxCreate} onChange={onChangeMaxCreate} />
         <div style={{ width:1, height:22, background:'var(--border)' }} />
         <NumberInput label="Diskon" icon="worker" value={maxDiskon} onChange={onChangeMaxDiskon} />
+        {appInfo.version ? (<>
+          <div style={{ width:1, height:22, background:'var(--border)', marginLeft:4 }} />
+          <span style={{
+            fontFamily:"'JetBrains Mono', ui-monospace, monospace",
+            fontSize:10, opacity:0.55, color:'var(--text3)',
+            whiteSpace:'nowrap', letterSpacing:'0.02em', paddingLeft:4,
+          }}>
+            v{appInfo.version}{appInfo.releaseDate ? ` \u00b7 ${appInfo.releaseDate}` : ''}
+          </span>
+        </>) : null}
       </footer>
 
       {/* ── TWEAKS ── */}

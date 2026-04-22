@@ -340,6 +340,22 @@ class BotAPI:
             return self._window_ref[0]
         return None
 
+    # ---------- App info (version tag untuk footer) ----------
+    def get_app_info(self):
+        """Return {instanceName, version, releaseDate} untuk footer HTML.
+        Dipanggil sekali di JS onMount — tidak ikut state tick."""
+        try:
+            from shared import read_version, format_release_date
+            ver, raw_date = read_version()
+            return {
+                "instanceName": self.ctx.config.get("INSTANCE_NAME", "").strip(),
+                "version": ver,
+                "releaseDate": format_release_date(raw_date),
+            }
+        except Exception as e:
+            return {"instanceName": "", "version": "", "releaseDate": "",
+                    "error": str(e)[:160]}
+
 
 class StateBridge:
     """Polls BotContext setiap tick_ms dan push snapshot ke JS.
