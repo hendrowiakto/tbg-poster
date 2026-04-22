@@ -972,13 +972,17 @@ function App() {
         <NumberInput label="Diskon" icon="worker" value={maxDiskon} onChange={onChangeMaxDiskon} />
         {appInfo.version ? (<>
           <div style={{ width:1, height:22, background:'var(--border)', marginLeft:4 }} />
-          <span style={{
-            fontFamily:"'JetBrains Mono', ui-monospace, monospace",
-            fontSize:10, opacity:0.55, color:'var(--text3)',
-            whiteSpace:'nowrap', letterSpacing:'0.02em', paddingLeft:4,
+          <div style={{
+            fontSize:10, color:'var(--text3)', opacity:0.55,
+            fontFamily:"'JetBrains Mono', monospace",
+            letterSpacing:'0.02em', userSelect:'none',
+            whiteSpace:'nowrap', paddingLeft:4,
+            lineHeight:1.35, textAlign:'right',
+            display:'flex', flexDirection:'column',
           }}>
-            v{appInfo.version}{appInfo.releaseDate ? ` \u00b7 ${appInfo.releaseDate}` : ''}
-          </span>
+            <span>Version: v{appInfo.version}</span>
+            <span>Last Update: {appInfo.releaseDate}</span>
+          </div>
         </>) : null}
       </footer>
 

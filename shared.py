@@ -69,12 +69,23 @@ def call_with_timeout(fn, args=(), kwargs=None, timeout=60, name="task"):
 
 
 # ===================== VERSION =====================
+def _resolve_version_path():
+    """Frozen (EXE): VERSION.txt di-bundle PyInstaller -> _MEIPASS.
+    Dev: SCRIPT_DIR. Office PC cuma punya EXE (no source files)."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        cand = os.path.join(meipass, "VERSION.txt")
+        if os.path.exists(cand):
+            return cand
+    return VERSION_FILE
+
+
 def read_version():
     """Baca VERSION.txt (2 baris: version, release date YYYY-MM-DD).
     Return (version_str, date_str). Fallback ("", "") kalau file missing/rusak.
-    Di-update oleh release.bat tiap rilis — di git, tidak per-PC."""
+    Di-update oleh release.bat tiap rilis, di-bundle ke EXE via PyInstaller."""
     try:
-        with open(VERSION_FILE, "r", encoding="utf-8") as f:
+        with open(_resolve_version_path(), "r", encoding="utf-8") as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
         version = lines[0] if len(lines) >= 1 else ""
         date    = lines[1] if len(lines) >= 2 else ""
@@ -84,15 +95,21 @@ def read_version():
 
 
 def format_release_date(raw):
-    """Konversi 'YYYY-MM-DD' -> '22 Apr 2026' (English month abbrev, biar pendek).
-    Return '' kalau raw kosong/invalid."""
+    """Konversi 'YYYY-MM-DD HH:MM' -> 'DD/MM/YYYY HH:MM'.
+    Backward-compat: input 'YYYY-MM-DD' (tanpa jam) -> 'DD/MM/YYYY'.
+    Return '' kalau raw kosong, fallback ke raw kalau parse gagal."""
     if not raw:
         return ""
+    raw = raw.strip()
     try:
-        y, m, d = raw.split("-")
-        months = ("Jan","Feb","Mar","Apr","May","Jun",
-                  "Jul","Aug","Sep","Oct","Nov","Dec")
-        return f"{int(d)} {months[int(m)-1]} {y}"
+        parts = raw.split(" ", 1)
+        date_part = parts[0]
+        time_part = parts[1].strip() if len(parts) > 1 else ""
+        y, m, d = date_part.split("-")
+        out = f"{int(d):02d}/{int(m):02d}/{y}"
+        if time_part:
+            out += " " + time_part
+        return out
     except Exception:
         return raw
 

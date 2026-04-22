@@ -44,9 +44,9 @@ echo        Version sekarang: v!CURRENT!
 set NEW_VERSION=
 set /p NEW_VERSION="       Push ke versi v (Enter = skip bump, pakai timestamp): "
 
-REM Hari ini dalam format YYYY-MM-DD (wmic local time)
+REM Timestamp saat ini: YYYY-MM-DD HH:MM (wmic local time)
 for /f "tokens=2 delims==" %%a in ('wmic OS Get localdatetime /value ^| find "="') do set DT=%%a
-set TODAY=!DT:~0,4!-!DT:~4,2!-!DT:~6,2!
+set TODAY=!DT:~0,4!-!DT:~4,2!-!DT:~6,2! !DT:~8,2!:!DT:~10,2!
 
 if not "!NEW_VERSION!"=="" (
     echo        Update VERSION.txt -^> v!NEW_VERSION! ^(!TODAY!^)
