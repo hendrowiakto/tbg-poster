@@ -91,6 +91,8 @@ pyinstaller ^
     --collect-submodules pythonnet ^
     --collect-submodules create ^
     --hidden-import create.ZEUS ^
+    --hidden-import create.ELDO ^
+    --hidden-import create.PA ^
     --hidden-import gspread ^
     --hidden-import google.auth ^
     --hidden-import google.oauth2 ^

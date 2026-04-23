@@ -1455,9 +1455,9 @@ def _proses_produk_body(sheet, data, baris_index, worker_id=1):
     elif jumlah_gagal == 0:
         prefix = "✅ All Good"
     elif jumlah_gagal == total_market:
-        prefix = "❌ Error (semua)"
+        prefix = "❌ Gagal Total"
     else:
-        prefix = "❗ Error (sebagian)"
+        prefix = "⚠️ Error Sebagian"
 
     catatan_lines = [prefix, ""]
     for key in catatan_order:

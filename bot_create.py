@@ -1025,9 +1025,9 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
         if fail_count == 0:
             prefix = "✅ All Good"
         elif fail_count == total:
-            prefix = "❌ Error (semua)"
+            prefix = "❌ Gagal Total"
         else:
-            prefix = "❗ Error (sebagian)"
+            prefix = "⚠️ Error Sebagian"
         k_val = "\n".join([prefix, ""] + final_lines).strip()
     else:
         k_val = k_working

@@ -24,6 +24,7 @@ CSS classes ZEUS ber-hash (CSS Module: foo_bar__HASH). Selector pakai
 kombinasi hashed exact + class prefix supaya survive hash churn.
 """
 
+import random
 import re
 from datetime import datetime
 from playwright.sync_api import sync_playwright
@@ -33,9 +34,26 @@ from create._shared import (
     _log as add_log,
     _get_chrome_debug_port,
     xpath_literal as _xpath_literal,
-    smart_wait,
+    smart_wait as _base_smart_wait,
     get_or_create_context,
 )
+
+
+# ZEUS anti-spam throttle: account ZEUS ke-suspend 24 jam karena post terlalu
+# cepat. Tambah 25% base delay + 0-40% random jitter on top supaya pattern
+# inter-action timing lebih human-like.
+_ZEUS_SLOW_MULT    = 1.25
+_ZEUS_JITTER_MAX   = 0.40  # 0-40% extra random per call
+
+
+def smart_wait(page, min_ms, max_ms):
+    """ZEUS-local smart_wait: base × 1.25 + random 0-40% extra jitter."""
+    jitter = 1.0 + random.uniform(0, _ZEUS_JITTER_MAX)
+    lo = int(min_ms * _ZEUS_SLOW_MULT * jitter)
+    hi = int(max_ms * _ZEUS_SLOW_MULT * jitter)
+    if hi < lo:
+        hi = lo
+    _base_smart_wait(page, lo, hi)
 
 
 # ===================== KONSTANTA =====================
@@ -314,7 +332,7 @@ def _close_dropdown_by_picking_first(page):
 
 def _scrape_form_options_page(page):
     """Scrape dynamic dropdowns setelah Game dipilih. Return {label:[opts]}."""
-    page.wait_for_timeout(2500)
+    smart_wait(page, 2500, 3500)
     metas = _get_dropdown_meta(page)
     add_log(f"[ZEUS] Detected {len(metas)} dropdown: {[m['label'] for m in metas]}")
 
@@ -597,7 +615,7 @@ def _upload_images(page, image_paths):
         try:
             inputs[i].set_input_files(path)
             count += 1
-            page.wait_for_timeout(1800)
+            smart_wait(page, 1800, 2600)
         except Exception as e:
             add_log(f"[ZEUS] Upload gambar {i+1} gagal: {str(e)[:80]}")
             break
