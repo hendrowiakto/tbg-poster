@@ -271,9 +271,6 @@ class BotAPI:
         self._log(f"Bot {key.upper()} {'dinyalakan' if enabled else 'dimatikan'}")
         return {"ok": True}
 
-    def set_max_create(self, value):
-        return self._set_worker_count("CREATE_MAX_WORKER", value)
-
     def set_max_diskon(self, value):
         return self._set_worker_count("DISKON_MAX_WORKER", value)
 
@@ -484,11 +481,6 @@ class StateBridge:
         any_enabled = any(toggles.values())
         connected = bool(chrome_ok and sheets_ok and any_enabled)
 
-        # Worker limits (read live from config)
-        try:
-            max_create = ctx.config.get_int("CREATE_MAX_WORKER", 3)
-        except Exception:
-            max_create = 3
         try:
             max_diskon = ctx.config.get_int("DISKON_MAX_WORKER", 5)
         except Exception:
@@ -499,7 +491,6 @@ class StateBridge:
             "bots": bots_ui,
             "workers": workers_out,
             "stats": stats_out,
-            "maxCreate": max_create,
             "maxDiskon": max_diskon,
         }
 
@@ -538,8 +529,11 @@ class StateBridge:
                     # (idle, tidak sedang proses market). bot_create tidak punya
                     # konsep waiting - semua worker listed = active.
                     waiting = bool(info.get("waiting", False))
+                    # bot_create & bot_delete selalu 1 worker -> id tanpa angka.
+                    # bot_diskon multi-worker -> id dgn angka (W1, W2, ...).
+                    worker_id = f"W{wid}" if bot == "diskon" else "W"
                     out.append({
-                        "id": f"W{wid}",
+                        "id": worker_id,
                         "game": sheet_part or "-",
                         "row": row_part or "-",
                         "url": info.get("url", "") or "",
@@ -552,7 +546,7 @@ class StateBridge:
                 data = self.ctx.progress.get(bot)
                 if data.get("phase") == "processing":
                     out.append({
-                        "id": "W1",
+                        "id": "W",
                         "game": data.get("current_sheet") or "-",
                         "row": str(data.get("current_row") or "-"),
                         "url": "",

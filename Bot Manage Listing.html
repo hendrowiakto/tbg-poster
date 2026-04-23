@@ -292,7 +292,7 @@ function BotCard({ label, icon, color, active, running, onToggle, status, progre
             )}
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:1 }}>
-            <span style={{ fontSize:11, color: running ? c : stopped ? 'var(--text3)' : `${c}99`, lineHeight:'16px' }}>{status}</span>
+            <span style={{ fontSize:11, color: running ? c : stopped ? 'var(--text3)' : 'var(--text2)', lineHeight:'16px' }}>{status}</span>
             {running && (
               <span style={{
                 fontSize:10, fontFamily:"'JetBrains Mono', monospace",
@@ -561,6 +561,17 @@ function Toast({ toasts, onDismiss }) {
   );
 }
 
+// Preload notif sound once. Edge autoplay policy biasanya allow setelah user
+// sudah interact dgn window -- catch() swallow kalau blocked biar ndak spam.
+const _notifAudio = (() => {
+  try {
+    const a = new Audio('notif.wav');
+    a.preload = 'auto';
+    a.volume = 0.8;
+    return a;
+  } catch (_) { return null; }
+})();
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function App() {
   const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
@@ -573,6 +584,13 @@ function App() {
     const id = ++toastIdRef.current;
     setToasts(prev => [...prev.slice(-3), { id, type, msg }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 10000);
+    if (_notifAudio) {
+      try {
+        _notifAudio.currentTime = 0;
+        const p = _notifAudio.play();
+        if (p && p.catch) p.catch(() => {});
+      } catch (_) {}
+    }
   }, []);
 
   const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
@@ -586,7 +604,6 @@ function App() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
   const [appInfo, setAppInfo] = useState({ version: '', releaseDate: '' });
-  const [maxCreate, setMaxCreate] = useState(3);
   const [maxDiskon, setMaxDiskon] = useState(5);
   const [workers, setWorkers] = useState([]);
   const [bots, setBots] = useState({
@@ -643,7 +660,6 @@ function App() {
       if (typeof s.connected === 'boolean') setConnected(s.connected);
       if (Array.isArray(s.workers)) setWorkers(s.workers);
       if (s.stats && typeof s.stats === 'object') setStats(prev => ({ ...prev, ...s.stats }));
-      if (typeof s.maxCreate === 'number') setMaxCreate(Math.min(10, Math.max(1, s.maxCreate)));
       if (typeof s.maxDiskon === 'number') setMaxDiskon(Math.min(10, Math.max(1, s.maxDiskon)));
       if (s.bots && typeof s.bots === 'object') {
         setBots(prev => {
@@ -750,12 +766,6 @@ function App() {
     blink('sheets');
     const a = api();
     if (a && a.open_sheets) { try { await a.open_sheets(); } catch (_) {} }
-  };
-
-  const onChangeMaxCreate = (v) => {
-    setMaxCreate(v);
-    const a = api();
-    if (a && a.set_max_create) { try { a.set_max_create(v); } catch (_) {} }
   };
 
   const onChangeMaxDiskon = (v) => {
@@ -967,8 +977,6 @@ function App() {
         <ActionBtn icon="sheets" label="Google Sheets" onClick={openSheets} variant="purple" blink={blinking['sheets']} />
         <ActionBtn icon="scan" label={blinking['scan'] ? 'Scanning...' : 'Force Scan'} onClick={forceScan} variant="primary" blink={blinking['scan']} />
         <div style={{ flex:1 }} />
-        <NumberInput label="Create" icon="worker" value={maxCreate} onChange={onChangeMaxCreate} />
-        <div style={{ width:1, height:22, background:'var(--border)' }} />
         <NumberInput label="Diskon" icon="worker" value={maxDiskon} onChange={onChangeMaxDiskon} />
         {appInfo.version ? (<>
           <div style={{ width:1, height:22, background:'var(--border)', marginLeft:4 }} />
@@ -1051,7 +1059,7 @@ function WorkerRow({ w, i, total }) {
       <span style={{
         fontSize:10, fontWeight:700, color:'var(--accent)',
         fontFamily:"'JetBrains Mono', monospace", flexShrink:0,
-      }}>{String(w.id).replace(/^W/, 'Worker ')}</span>
+      }}>{String(w.id).replace(/^W(\d*)$/, (_, n) => n ? `Worker ${n}` : 'Worker')}</span>
       <span style={{
         flex:1, fontSize:11, color:'var(--text)', fontWeight:500,
         overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0,

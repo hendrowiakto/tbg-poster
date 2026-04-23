@@ -83,11 +83,14 @@ pyinstaller ^
     --add-data "boys_gaming.gif;." ^
     --add-data "icon.ico;." ^
     --add-data "Bot Manage Listing.html;." ^
+    --add-data "notif.wav;." ^
     --add-data "VERSION.txt;." ^
     --collect-all playwright ^
     --collect-all webview ^
     --collect-all clr_loader ^
     --collect-submodules pythonnet ^
+    --collect-submodules create ^
+    --hidden-import create.ZEUS ^
     --hidden-import gspread ^
     --hidden-import google.auth ^
     --hidden-import google.oauth2 ^

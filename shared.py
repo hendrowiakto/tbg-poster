@@ -131,9 +131,6 @@ CHROME_USER_DATA_DIR=C:\\chrome-debug
 # ============ GEMINI AI (untuk bot_create) ============
 GEMINI_API_KEY=ISI_API_KEY_GEMINI_DISINI
 
-# ============ BOT_CREATE ============
-CREATE_MAX_WORKER=3
-
 # ============ BOT_DISKON ============
 DISKON_MAX_WORKER=5
 
@@ -413,6 +410,7 @@ class ChromeManager:
                 "--hide-crash-restore-bubble",
                 "--no-default-browser-check",
                 "--no-first-run",
+                "--mute-audio",
                 startup_url,
             ])
         except FileNotFoundError:
@@ -502,12 +500,52 @@ class ChromeManager:
             self.logger.log("app", f"Cleanup tab error: {str(e)[:80]}")
 
     def terminate(self):
-        if self.process:
+        proc = self.process
+        self.process = None
+        pid = None
+        if proc:
+            pid = proc.pid
             try:
-                self.process.terminate()
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except Exception:
+                    pass
             except Exception:
                 pass
-            self.process = None
+
+        if os.name != "nt":
+            return
+
+        CREATE_NO_WINDOW = 0x08000000
+        if pid:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=5, creationflags=CREATE_NO_WINDOW,
+                )
+            except Exception:
+                pass
+
+        udd = (self.user_data_dir or "").strip()
+        if not udd:
+            return
+        udd_esc = udd.replace("'", "''")
+        ps_cmd = (
+            "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+            f"| Where-Object {{ $_.CommandLine -like '*{udd_esc}*' }} "
+            "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
+            "-ErrorAction SilentlyContinue }"
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=8, creationflags=CREATE_NO_WINDOW,
+            )
+        except Exception:
+            pass
 
 
 # ===================== SHEETS CLIENT =====================
