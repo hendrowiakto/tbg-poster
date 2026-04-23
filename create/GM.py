@@ -71,12 +71,18 @@ def _set_worker_tab_title(page):
 
 # ===================== GAME & TYPE SELECTION =====================
 def _select_game_dropdown(page, game_name_gm):
-    """Pilih Game: input text biasa, ketik nama, klik opsi autocomplete."""
+    """Pilih Game: click input Market, ketik nama, klik opsi autocomplete.
+    Layout baru GM (2026-04): Tailwind combobox custom, input placeholder='Select game'
+    di bawah label <p>Market*</p>. Input tsb merangkap search + trigger dropdown."""
     add_log(f"[GM] Pilih Game: {game_name_gm}")
 
-    # Game field: <input placeholder="Please Select Game"> di form (BUKAN header search).
+    # Input Market. Layout baru: placeholder='Select game' (case-sensitive).
+    # Layout lama: 'Please Select Game'. Pertahanin fallback buat backward-compat.
     game_input = None
     for sel in [
+        "input[placeholder='Select game']",
+        "xpath=//p[starts-with(normalize-space(),'Market')]/following::input[@placeholder='Select game'][1]",
+        "xpath=//main//input[@placeholder='Select game']",
         "input[placeholder='Please Select Game']",
         "xpath=//main//input[@placeholder='Please Select Game']",
         "xpath=//*[normalize-space()='Game' or normalize-space()='Game *']/following::input[@placeholder='Please Select Game'][1]",
@@ -93,9 +99,11 @@ def _select_game_dropdown(page, game_name_gm):
         raise Exception("Game input tidak ditemukan")
 
     game_input.click()
-    smart_wait(page, 300, 600)
+    smart_wait(page, 150, 300)
 
-    # Setelah click, dropdown terbuka & focus pindah ke search input.
+    # Layout lama kadang buka modal dgn search box terpisah. Layout baru ketik
+    # langsung di input-nya. Cek search box separate sebentar aja (150ms each),
+    # kalau ndak ada fokus balik ke game_input.
     search_box = None
     for sel in [
         "input[placeholder='Type to search...']",
@@ -104,43 +112,55 @@ def _select_game_dropdown(page, game_name_gm):
     ]:
         try:
             loc = page.locator(sel).first
-            loc.wait_for(state="visible", timeout=800)
+            loc.wait_for(state="visible", timeout=150)
             search_box = loc
             break
         except Exception:
             continue
 
-    if search_box is not None:
-        try:
-            search_box.click()
-        except Exception:
-            pass
+    target = search_box if search_box is not None else game_input
+    try:
+        target.click()
+    except Exception:
+        pass
     # Clear + type cepat (30ms/char, "Clash Royale" = ~0.36s)
     page.keyboard.press("Control+A")
     page.keyboard.press("Delete")
     page.keyboard.type(game_name_gm, delay=30)
-    smart_wait(page, 600, 1000)
+    smart_wait(page, 300, 500)
 
-    # Klik option match di popup (match FULL name, bukan search_query)
+    # Klik option match di popup.
     gm_lit       = _xpath_literal(game_name_gm)
     gm_lower_lit = _xpath_literal(game_name_gm.lower())
     upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     lower = "abcdefghijklmnopqrstuvwxyz"
+    # Layout baru: option biasanya <div class="cursor-pointer ...">  tanpa role=option.
+    # Layout lama: role=option di portal. Coba urut dari spesifik -> fuzzy.
     selectors = [
+        f"xpath=//button[@data-value and normalize-space()={gm_lit}]",
+        f"xpath=//button[normalize-space()={gm_lit} and contains(@class,'hover:bg')]",
+        f"xpath=//button[normalize-space()={gm_lit}]",
         f"xpath=//*[@role='option' and normalize-space()={gm_lit}]",
         f"xpath=//li[normalize-space()={gm_lit}]",
-        f"xpath=//div[normalize-space()={gm_lit} and (contains(@class,'cursor-pointer') or contains(@class,'hover'))]",
+        f"xpath=//div[contains(@class,'cursor-pointer')][normalize-space()={gm_lit}]",
+        f"xpath=//div[contains(@class,'hover:bg')][normalize-space()={gm_lit}]",
+        f"xpath=//button[@data-value][contains(translate(normalize-space(.),'{upper}','{lower}'),{gm_lower_lit})]",
+        f"xpath=//div[contains(@class,'cursor-pointer')][contains(translate(normalize-space(.),'{upper}','{lower}'),{gm_lower_lit})]",
         f"xpath=//*[normalize-space(text())={gm_lit}]",
         f"xpath=//*[@role='option'][contains(translate(normalize-space(.),'{upper}','{lower}'),{gm_lower_lit})]",
     ]
-    # Fallback fuzzy: kalau nama ada ':', match option yg mengandung suffix (bagian setelah ':')
-    # Contoh: sheet 'Mobile Legend: Bang Bang' vs web 'Mobile Legends: Bang Bang' -> match via 'bang bang'
     if ":" in game_name_gm:
         suffix = game_name_gm.split(":", 1)[1].strip().lower()
         if suffix:
             suffix_lit = _xpath_literal(suffix)
             selectors.append(
+                f"xpath=//button[@data-value][contains(translate(normalize-space(.),'{upper}','{lower}'),{suffix_lit})]"
+            )
+            selectors.append(
                 f"xpath=//*[@role='option'][contains(translate(normalize-space(.),'{upper}','{lower}'),{suffix_lit})]"
+            )
+            selectors.append(
+                f"xpath=//div[contains(@class,'cursor-pointer')][contains(translate(normalize-space(.),'{upper}','{lower}'),{suffix_lit})]"
             )
     option = None
     for sel in selectors:
@@ -158,36 +178,67 @@ def _select_game_dropdown(page, game_name_gm):
 
 
 def _select_type_accounts(page):
-    """Pilih Type = Accounts. Type pakai radix combobox button."""
+    """Pilih Type = Accounts. Layout baru GM (2026-04): input Tailwind custom
+    placeholder='Select type' yg initially disabled sampe Game dipilih.
+    Layout lama: <button role='combobox'>. Keep backward-compat."""
     add_log("[GM] Pilih Type: Accounts")
 
-    # Type: <button role='combobox'> dengan placeholder "Select Type"
-    dropdown = None
-    for sel in [
-        "button[role='combobox']:has(span:has-text('Select Type'))",
-        "xpath=//button[@role='combobox' and .//span[normalize-space()='Select Type']]",
-        "xpath=//label[normalize-space()='Type']/following::button[@role='combobox'][1]",
-        "xpath=//*[normalize-space()='Type']/following::button[@role='combobox'][1]",
-    ]:
-        try:
-            loc = page.locator(sel).first
-            loc.wait_for(state="visible", timeout=3000)
-            dropdown = loc
+    # Tunggu Type input jadi enabled (after game dipilih form bakal enable Type).
+    type_input = None
+    for _ in range(30):  # max 6s
+        for sel in [
+            "input[placeholder='Select type']:not([disabled])",
+            "xpath=//p[starts-with(normalize-space(),'Type')]/following::input[@placeholder='Select type' and not(@disabled)][1]",
+        ]:
+            try:
+                loc = page.locator(sel).first
+                loc.wait_for(state="visible", timeout=200)
+                type_input = loc
+                break
+            except Exception:
+                continue
+        if type_input is not None:
             break
-        except Exception:
-            continue
-    if dropdown is None:
-        raise Exception("Type combobox tidak ditemukan")
+        page.wait_for_timeout(200)
 
-    dropdown.click()
-    smart_wait(page, 800, 1500)
+    if type_input is not None:
+        type_input.click()
+        smart_wait(page, 400, 800)
+    else:
+        # Fallback layout lama: button role=combobox
+        dropdown = None
+        for sel in [
+            "button[role='combobox']:has(span:has-text('Select Type'))",
+            "xpath=//button[@role='combobox' and .//span[normalize-space()='Select Type']]",
+            "xpath=//label[normalize-space()='Type']/following::button[@role='combobox'][1]",
+            "xpath=//*[normalize-space()='Type']/following::button[@role='combobox'][1]",
+        ]:
+            try:
+                loc = page.locator(sel).first
+                loc.wait_for(state="visible", timeout=3000)
+                dropdown = loc
+                break
+            except Exception:
+                continue
+        if dropdown is None:
+            raise Exception("Type input/combobox tidak ditemukan")
+        dropdown.click()
+        smart_wait(page, 800, 1500)
 
-    # Options muncul di radix portal (luar DOM combobox). Cari by role=option.
+    # Options muncul di dropdown portal. Layout baru (2026-04) pakai
+    # <button data-value="..."> dgn text 'Accounts'. Layout older pakai
+    # div.cursor-pointer atau role=option.
     option = None
     for sel in [
+        "xpath=//button[@data-value and normalize-space()='Accounts']",
+        "xpath=//button[normalize-space()='Accounts' and contains(@class,'hover:bg')]",
+        "xpath=//button[normalize-space()='Accounts']",
         "xpath=//*[@role='option' and normalize-space()='Accounts']",
         "[role='option']:has-text('Accounts')",
         "xpath=//div[@role='option'][normalize-space()='Accounts']",
+        "xpath=//div[contains(@class,'cursor-pointer')][normalize-space()='Accounts']",
+        "xpath=//li[normalize-space()='Accounts']",
+        "xpath=//div[contains(@class,'hover:bg')][normalize-space()='Accounts']",
     ]:
         try:
             loc = page.locator(sel).first
@@ -203,98 +254,233 @@ def _select_type_accounts(page):
 
 
 # ===================== FORM OPTIONS SCRAPER =====================
+def _find_dropdown_trigger(page, label):
+    """Resolve trigger dropdown by label. Try layout baru (input[placeholder=
+    'Select {label}']) dulu, fallback layout lama (button[role='combobox']).
+    Return (locator, kind) where kind in {'input','button'} atau (None, None)."""
+    # Layout baru: input placeholder exact match
+    try:
+        loc = page.locator(f"input[placeholder='Select {label}']").first
+        if loc.is_visible(timeout=500):
+            return loc, "input"
+    except Exception:
+        pass
+    # Layout lama: button role=combobox
+    try:
+        loc = page.locator(
+            f"button[role='combobox']:has(span:text-is('Select {label}'))"
+        ).first
+        if loc.is_visible(timeout=500):
+            return loc, "button"
+    except Exception:
+        pass
+    return None, None
+
+
+def _dropdown_options_visible(page):
+    """True kalau masih ada opsi dropdown visible di DOM (button[data-value]
+    atau [role='option'])."""
+    try:
+        n = page.locator("button[data-value]:visible").count()
+        if n > 0:
+            return True
+    except Exception:
+        pass
+    try:
+        n = page.locator("[role='option']:visible").count()
+        if n > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _close_dropdown(page, kind):
+    """Tutup dropdown yg lagi kebuka. Multi-strategy + verifikasi:
+    1. Escape (cukup buat layout lama button[role=combobox]).
+    2. Mouse click di koordinat absolute (5,5) — fire click-away handler tanpa
+       kena elemen interactive yg lain.
+    3. JS blur activeElement + dispatch pointerdown/mousedown ke documentElement.
+    Verifikasi lewat _dropdown_options_visible — kalau masih open, coba strategi
+    berikutnya. Max 3 attempt."""
+    strategies = []
+    if kind == "button":
+        # Layout lama: Escape dulu, fallback click-outside
+        strategies = ["escape", "mouse_corner", "js_dispatch"]
+    else:
+        # Layout baru: Escape ndak ngerti, click-outside jurus utama
+        strategies = ["mouse_corner", "js_dispatch", "escape"]
+
+    for strat in strategies:
+        try:
+            if strat == "escape":
+                page.keyboard.press("Escape")
+            elif strat == "mouse_corner":
+                # Klik di area atas-kiri viewport. Di (5,5) biasanya masuk
+                # browser chrome margin, pakai (100, 100) yg lebih aman di
+                # dalam halaman tapi di luar form/dropdown.
+                page.mouse.click(100, 100)
+            elif strat == "js_dispatch":
+                page.evaluate("""
+                    () => {
+                        const a = document.activeElement;
+                        if (a && a.blur) a.blur();
+                        const opts = {bubbles: true, cancelable: true,
+                                      clientX: 5, clientY: 5, view: window};
+                        ['pointerdown','mousedown','mouseup','click'].forEach(t => {
+                            try { document.documentElement.dispatchEvent(new MouseEvent(t, opts)); } catch(e) {}
+                        });
+                    }
+                """)
+        except Exception:
+            continue
+        page.wait_for_timeout(200)
+        if not _dropdown_options_visible(page):
+            return
+
+
+def _collect_dropdown_options(page):
+    """Ambil semua option visible di portal/popup dropdown. Layout baru
+    pakai <button data-value>, layout lama pakai [role='option']."""
+    texts = []
+    for sel in [
+        "button[data-value]:visible",
+        "[role='option']:visible",
+    ]:
+        try:
+            for o in page.locator(sel).all():
+                try:
+                    t = (o.inner_text(timeout=600) or "").strip()
+                    if t and t not in texts:
+                        texts.append(t)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        if texts:
+            break
+    return texts
+
+
 def _scrape_form_options_page(page):
-    """Scrape semua dropdown dinamis SETELAH Game+Type dipilih.
-    Label diderive dari placeholder span 'Select X' di dalam button combobox.
+    """Scrape semua dropdown dinamis SETELAH Game+Type dipilih. Support 2 layout:
+    - Baru: <input placeholder='Select X'> + <button data-value> options
+    - Lama: <button role='combobox'> dgn <span>Select X</span> + [role='option']
     Return dict {field_label: [options]}."""
     options_map = {}
 
     # Tunggu field dinamis render (bergantung pada Type=Accounts)
     page.wait_for_timeout(2500)
 
-    # Kumpulkan semua dynamic combobox button - deteksi via placeholder "Select X"
-    comboboxes = page.locator("button[role='combobox']").all()
-    pending = []  # list of (label, button_locator_selector)
+    pending = []
 
-    for idx, btn in enumerate(comboboxes):
-        try:
-            span = btn.locator("span").first
-            txt = (span.inner_text(timeout=1500) or "").strip()
-        except Exception:
-            continue
-        if not txt.lower().startswith("select "):
-            # Artinya sudah terisi atau bukan pattern 'Select X' -> skip (termasuk Type yg sudah 'Accounts')
-            continue
-        label = txt[7:].strip()
-        if not label or label.lower() == "type":
-            continue
-        pending.append(label)
+    # Layout baru: input[placeholder^='Select '] (exclude 'Select game'/'Select type'
+    # yg handled by dedicated function, dan 'Select Type' case yg sudah terisi).
+    try:
+        inputs = page.locator("input[placeholder^='Select ']").all()
+        for inp in inputs:
+            try:
+                ph = (inp.get_attribute("placeholder") or "").strip()
+            except Exception:
+                continue
+            if not ph.lower().startswith("select "):
+                continue
+            label = ph[7:].strip()
+            if not label:
+                continue
+            lower_label = label.lower()
+            if lower_label in ("game", "type"):
+                continue
+            if label not in pending:
+                pending.append(label)
+    except Exception:
+        pass
+
+    # Layout lama: button role=combobox dgn span 'Select X'
+    try:
+        comboboxes = page.locator("button[role='combobox']").all()
+        for btn in comboboxes:
+            try:
+                span = btn.locator("span").first
+                txt = (span.inner_text(timeout=1500) or "").strip()
+            except Exception:
+                continue
+            if not txt.lower().startswith("select "):
+                continue
+            label = txt[7:].strip()
+            if not label:
+                continue
+            lower_label = label.lower()
+            if lower_label in ("game", "type"):
+                continue
+            if label not in pending:
+                pending.append(label)
+    except Exception:
+        pass
 
     add_log(f"[GM] Detected {len(pending)} dynamic dropdown(s): {pending}")
 
     for label in pending:
         try:
-            # Re-find karena DOM bisa berubah. Cari by placeholder exact match.
-            dropdown = page.locator(
-                f"button[role='combobox']:has(span:text-is('Select {label}'))"
-            ).first
-            if not dropdown.is_visible():
+            trigger, kind = _find_dropdown_trigger(page, label)
+            if trigger is None:
+                add_log(f"[GM]    {label}: trigger tidak visible, skip")
                 continue
-            dropdown.click()
-            page.wait_for_timeout(800)
+            trigger.click()
+            page.wait_for_timeout(350)
 
-            opts = page.locator("[role='option']:visible").all()
-            opt_texts = []
-            for o in opts:
-                try:
-                    t = (o.inner_text(timeout=800) or "").strip()
-                    if t and t not in opt_texts:
-                        opt_texts.append(t)
-                except Exception:
-                    pass
+            opt_texts = _collect_dropdown_options(page)
             if opt_texts:
                 options_map[label] = opt_texts
                 add_log(f"[GM]    - {label}: {len(opt_texts)} opsi -> {opt_texts[:5]}{'...' if len(opt_texts)>5 else ''}")
             else:
                 add_log(f"[GM]    {label}: opsi tidak terdeteksi")
 
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(400)
+            # Tutup dropdown. Layout lama Escape cukup. Layout baru (input
+            # custom Tailwind): click input ndak toggle (re-focus doang),
+            # Escape ndak di-handle juga. Jurus yg reliable: blur active
+            # element + click label statis "Listing information".
+            _close_dropdown(page, kind)
         except Exception as e:
             add_log(f"[GM] Gagal scrape '{label}': {str(e)[:80]}")
-            try:
-                page.keyboard.press("Escape")
-            except Exception:
-                pass
+            _close_dropdown(page, "input")
             continue
 
     return options_map
 
 
 def _select_dropdown_by_label(page, label_text, option_value):
-    """Klik combobox 'Select {label_text}' lalu pilih option."""
+    """Klik trigger 'Select {label_text}' lalu pilih option. Support layout baru
+    (input + button[data-value]) dan lama (button[role=combobox] + role=option)."""
     add_log(f"[GM] Isi {label_text}: {option_value}")
     try:
-        dropdown = page.locator(
-            f"button[role='combobox']:has(span:text-is('Select {label_text}'))"
-        ).first
-        dropdown.wait_for(state="visible", timeout=10000)
-        dropdown.click()
-        smart_wait(page, 700, 1300)
+        # Resolve trigger - poll sedikit karena field dinamis render after parent.
+        trigger = None
+        for _ in range(20):  # 4s max
+            trigger, _kind = _find_dropdown_trigger(page, label_text)
+            if trigger is not None:
+                break
+            page.wait_for_timeout(200)
+        if trigger is None:
+            raise Exception(f"trigger 'Select {label_text}' tidak ditemukan")
+        trigger.click()
+        smart_wait(page, 250, 450)
 
-        # Opsi muncul di radix portal
+        # Opsi: layout baru button[data-value], layout lama role=option.
         opt_lit = _xpath_literal(option_value)
-        # :has-text() Playwright selector butuh escape \' untuk apostrof di CSS string
         opt_css_safe = option_value.replace("\\", "\\\\").replace("'", "\\'")
         option = None
         for sel in [
+            f"xpath=//button[@data-value and normalize-space()={opt_lit}]",
+            f"xpath=//button[normalize-space()={opt_lit} and contains(@class,'hover:bg')]",
             f"xpath=//*[@role='option' and normalize-space()={opt_lit}]",
             f"[role='option']:has-text('{opt_css_safe}')",
+            f"xpath=//button[normalize-space()={opt_lit}]",
             f"xpath=//*[normalize-space(text())={opt_lit}]",
         ]:
             try:
                 loc = page.locator(sel).first
-                loc.wait_for(state="visible", timeout=3000)
+                loc.wait_for(state="visible", timeout=500)
                 option = loc
                 break
             except Exception:
@@ -302,7 +488,7 @@ def _select_dropdown_by_label(page, label_text, option_value):
         if option is None:
             raise Exception(f"opsi '{option_value}' tidak ditemukan")
         option.click()
-        smart_wait(page, 500, 1000)
+        smart_wait(page, 250, 500)
     except Exception as e:
         add_log(f"[GM] Gagal isi '{label_text}' = '{option_value}': {str(e)[:80]}")
         try:
@@ -312,6 +498,46 @@ def _select_dropdown_by_label(page, label_text, option_value):
 
 
 # ===================== PUBLIC ENTRIES =====================
+GM_ORIGIN = "https://gamemarket.gg"
+
+
+def _extract_listing_url(page):
+    """Extract absolute URL listingan yg baru dipublish. Source priority:
+    1. page.url kalau cocok pola /market/.../p/<slug>
+    2. Anchor 'View listing' di toast sukses (href relatif, prepend origin)
+    Return str URL atau None."""
+    # Sumber 1: page.url (kalau redirect terjadi)
+    try:
+        cur = page.url or ""
+        if "/market/" in cur and "/p/" in cur:
+            return cur
+    except Exception:
+        pass
+    # Sumber 2: toast anchor. Poll sedikit karena toast render async.
+    for _ in range(10):  # max 2s
+        for sel in [
+            "a[href*='/market/'][href*='/p/']",
+            "xpath=//a[contains(@href,'/market/') and contains(@href,'/p/')]",
+        ]:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0:
+                    href = loc.get_attribute("href", timeout=500) or ""
+                    if href:
+                        if href.startswith("http"):
+                            return href
+                        if href.startswith("/"):
+                            return GM_ORIGIN + href
+                        return f"{GM_ORIGIN}/{href}"
+            except Exception:
+                continue
+        try:
+            page.wait_for_timeout(200)
+        except Exception:
+            break
+    return None
+
+
 def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_paths):
     """Full flow isi form & submit. Return (berhasil, error_message)."""
     with sync_playwright() as p:
@@ -497,7 +723,7 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
                 if not upload_ok:
                     err = f"Upload gambar gagal setelah 3x retry ({last_err})"
                     add_log(f"[GM] {err} - abort publish")
-                    return False, err
+                    return False, err, None
 
             # 12. Terms of Service - GameMarket auto-centang, skip.
 
@@ -536,11 +762,11 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
             if redirected:
                 add_log(f"[GM] Redirect ke: {page.url} -> sukses")
                 smart_wait(page, 1000, 2000)
-                return True, None
+                return True, None, _extract_listing_url(page)
             if cleared:
                 add_log("[GM] Form di-reset (title kosong) -> sukses")
                 smart_wait(page, 1000, 2000)
-                return True, None
+                return True, None, _extract_listing_url(page)
 
             # Cek toast sukses
             try:
@@ -549,7 +775,7 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
                     " or contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'published')]"
                 )
                 if success_toast.count() > 0:
-                    return True, None
+                    return True, None, _extract_listing_url(page)
             except Exception:
                 pass
 
@@ -585,10 +811,10 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
                 if all_msgs:
                     combined = " | ".join(all_msgs[:5])
                     add_log(f"[GM] Form error detail: {combined[:300]}")
-                    return False, f"Form error: {combined[:150]}"
-                return False, "Submit tidak redirect, status tidak jelas"
+                    return False, f"Form error: {combined[:150]}", None
+                return False, "Submit tidak redirect, status tidak jelas", None
             except Exception as e:
-                return False, f"Submit tidak redirect ({str(e)[:60]})"
+                return False, f"Submit tidak redirect ({str(e)[:60]})", None
 
         except Exception as e:
             pesan = str(e)
@@ -599,7 +825,7 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
             else:
                 indo_error = f"Error: {pesan[:100]}"
             add_log(f"[GM] Gagal: {indo_error}")
-            return False, indo_error
+            return False, indo_error, None
 
         finally:
             if page:
@@ -660,9 +886,12 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
     if not image_paths:
         return False, "❌ GM | Gambar tidak bisa di download"
 
-    ok, err = create_listing(game_name, title, description, harga,
-                             field_mapping or {}, image_paths)
+    ok, err, listing_url = create_listing(game_name, title, description, harga,
+                                          field_mapping or {}, image_paths)
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
-        return True, f"✅ GM | {len(image_paths)} images uploaded | {ts}"
+        base = f"✅ GM | {len(image_paths)} images uploaded | {ts}"
+        if listing_url:
+            return True, f"{base} | {listing_url}"
+        return True, base
     return False, f"❌ GM | {(err or 'unknown')[:80]}"
