@@ -437,43 +437,47 @@ def _count_upload_previews(page):
     return 0
 
 
-def _upload_one_image(page, path, idx, total, timeout_ms=60000):
-    """Upload 1 gambar. Sukses = count preview-box naik vs baseline.
-    Simple & reliable: ndak depend spinner (terlalu noisy di Angular)."""
+def _upload_images_bulk(page, paths, timeout_ms=120000):
+    """Upload multiple gambar sekaligus lewat 1 set_input_files(paths).
+    Hidden <input type='file' multiple> di Eldorado support multi-file.
+    Return actual uploaded count (count preview final - baseline)."""
+    if not paths:
+        return 0
     baseline = _count_upload_previews(page)
-    target = baseline + 1
-    add_log(f"[ELDO] Upload gambar {idx}/{total} (baseline={baseline}, target={target})...")
+    target = baseline + len(paths)
+    add_log(f"[ELDO] Upload {len(paths)} gambar bulk (baseline={baseline}, target={target})...")
 
-    btn = None
-    for sel in [
-        "button[aria-label='Upload images']",
-        "button[data-testid*='offer-edit-image-upload-button']",
-        "xpath=//button[.//span[normalize-space()='Upload images']]",
-    ]:
-        try:
-            loc = page.locator(sel).first
-            loc.wait_for(state="visible", timeout=3000)
-            btn = loc
-            break
-        except Exception:
-            continue
-    if btn is None:
-        raise Exception("Upload images button tidak ditemukan")
-
-    # Set file: coba file chooser, fallback input[type=file].
+    # Find hidden file input. Pakai set_input_files langsung - ndak usah click
+    # button buat trigger file chooser karena chooser biasanya 1 file.
     try:
-        with page.expect_file_chooser(timeout=4000) as fc_info:
-            btn.click()
-        fc = fc_info.value
-        fc.set_files(path)
+        file_input = page.locator("input[type='file']").first
+        file_input.set_input_files(paths)
     except Exception as e1:
+        # Fallback: file chooser pattern (kalau input[type=file] ndak accessible)
         try:
-            file_input = page.locator("input[type='file']").first
-            file_input.set_input_files(path)
+            btn = None
+            for sel in [
+                "button[aria-label='Upload images']",
+                "button[data-testid*='offer-edit-image-upload-button']",
+                "xpath=//button[.//span[normalize-space()='Upload images']]",
+            ]:
+                try:
+                    loc = page.locator(sel).first
+                    loc.wait_for(state="visible", timeout=3000)
+                    btn = loc
+                    break
+                except Exception:
+                    continue
+            if btn is None:
+                raise Exception("Upload images button ndak ketemu")
+            with page.expect_file_chooser(timeout=4000) as fc_info:
+                btn.click()
+            fc = fc_info.value
+            fc.set_files(paths)
         except Exception as e2:
-            raise Exception(f"set_files gagal: chooser={str(e1)[:40]} input={str(e2)[:40]}")
+            raise Exception(f"set_files gagal: input={str(e1)[:40]} chooser={str(e2)[:40]}")
 
-    # Poll count tiap 500ms sampai >= target atau timeout.
+    # Poll count tiap 500ms. Timeout lebih generous buat bulk (banyak file).
     step_ms = 500
     elapsed = 0
     last_count = baseline
@@ -484,14 +488,15 @@ def _upload_one_image(page, path, idx, total, timeout_ms=60000):
         if cur != last_count:
             last_count = cur
         if cur >= target:
-            add_log(f"[ELDO] Upload {idx}/{total} OK ({baseline}->{cur}) {elapsed/1000:.1f}s")
-            # Beat kecil supaya Angular settle sebelum click Upload lagi.
-            smart_wait(page, 400, 700)
-            return True
+            add_log(f"[ELDO] Upload bulk OK ({baseline}->{cur}) {elapsed/1000:.1f}s")
+            smart_wait(page, 600, 1000)
+            return cur - baseline
 
-    add_log(f"[ELDO] Upload gambar {idx}/{total} timeout {timeout_ms//1000}s"
-            f" (count akhir={last_count}, target={target})")
-    return False
+    # Timeout - return apa yg udah keupload
+    actual = max(0, last_count - baseline)
+    add_log(f"[ELDO] Upload bulk timeout {timeout_ms//1000}s"
+            f" (count akhir={last_count}, target={target}, actual={actual})")
+    return actual
 
 
 def create_listing(game_name, title, deskripsi, harga, field_mapping, image_paths,
@@ -570,19 +575,15 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             except Exception as e:
                 return False, f"Title: {str(e)[:100]}", uploaded
 
-            # Step 5: Upload gambar (max 5, one-by-one, polling spinner)
+            # Step 5: Upload gambar bulk (max 5 sekaligus, 1 set_input_files call).
             to_upload = (image_paths or [])[:ELDO_MAX_IMAGES]
             if to_upload:
-                total = len(to_upload)
-                for i, path in enumerate(to_upload, start=1):
-                    try:
-                        ok = _upload_one_image(page, path, i, total)
-                        if ok:
-                            uploaded += 1
-                        else:
-                            add_log(f"[ELDO] Upload {i}/{total} gagal, lanjut")
-                    except Exception as e:
-                        add_log(f"[ELDO] Upload {i}/{total} exception: {str(e)[:80]}")
+                try:
+                    uploaded = _upload_images_bulk(page, to_upload)
+                    if uploaded < len(to_upload):
+                        add_log(f"[ELDO] Upload bulk partial: {uploaded}/{len(to_upload)}")
+                except Exception as e:
+                    add_log(f"[ELDO] Upload bulk exception: {str(e)[:80]}")
 
             # Step 6: Description (baris 1 = raw image URL tanpa https, baris 2+ = deskripsi)
             add_log("[ELDO] Isi Description")

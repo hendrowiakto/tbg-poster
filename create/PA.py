@@ -597,15 +597,23 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             else:
                 add_log("[PA] login_name kosong - skip (kolom B sheet kosong?)")
 
-            # Step 8: Klik semua radio 'Yes' yg belum kepilih (5 biji under manual)
+            # Step 8: Klik semua radio 'Yes' yg belum kepilih (5 biji under manual).
+            # Re-query nth() tiap iterasi (stale handle kalau Angular re-render
+            # setelah click). Plus ada verify-pass kedua yg retry yg belum ke-check.
             add_log("[PA] Klik 5x radio 'Yes'")
             try:
-                yes_wrappers = page.locator(
-                    "xpath=//span[contains(@class,'ant-radio-wrapper')][.//span[normalize-space()='Yes']]"
-                ).all()
+                yes_sel = (
+                    "xpath=//span[contains(@class,'ant-radio-wrapper')]"
+                    "[.//span[normalize-space()='Yes']]"
+                )
+                yes_elements = page.locator(yes_sel)
+                total = yes_elements.count()
+
+                # Pass 1: click semua
                 clicked_yes = 0
-                for w in yes_wrappers:
+                for i in range(total):
                     try:
+                        w = yes_elements.nth(i)
                         cls = w.get_attribute("class", timeout=300) or ""
                         if "ant-radio-wrapper-checked" in cls:
                             continue
@@ -613,10 +621,37 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                             continue
                         w.click(force=True)
                         clicked_yes += 1
-                        smart_wait(page, 150, 300)
+                        # Delay lebih panjang supaya Angular form control
+                        # commit state sebelum next click (bikin state pertama
+                        # ndak ke-reset saat render berikutnya).
+                        smart_wait(page, 400, 700)
                     except Exception:
                         continue
-                add_log(f"[PA] {clicked_yes} radio 'Yes' di-click")
+                add_log(f"[PA] Pass 1: {clicked_yes} radio 'Yes' di-click")
+
+                # Pass 2: verify + retry yg masih uncheck
+                reclick = 0
+                for attempt in range(3):  # max 3 retry pass
+                    fixed_in_pass = 0
+                    total = yes_elements.count()
+                    for i in range(total):
+                        try:
+                            w = yes_elements.nth(i)
+                            cls = w.get_attribute("class", timeout=300) or ""
+                            if "ant-radio-wrapper-checked" in cls:
+                                continue
+                            if not w.is_visible():
+                                continue
+                            w.click(force=True)
+                            reclick += 1
+                            fixed_in_pass += 1
+                            smart_wait(page, 400, 700)
+                        except Exception:
+                            continue
+                    if fixed_in_pass == 0:
+                        break
+                if reclick:
+                    add_log(f"[PA] Pass retry: {reclick} radio 'Yes' re-click")
             except Exception as e:
                 add_log(f"[PA] Gagal klik Yes radios: {str(e)[:80]}")
 
