@@ -93,6 +93,8 @@ pyinstaller ^
     --hidden-import create.ZEUS ^
     --hidden-import create.ELDO ^
     --hidden-import create.PA ^
+    --hidden-import create.U7 ^
+    --hidden-import create.GB ^
     --hidden-import gspread ^
     --hidden-import google.auth ^
     --hidden-import google.oauth2 ^
