@@ -36,6 +36,7 @@ NO_OPTIONS_SENTINEL_G2G = "[tidak ditemukan options G2G]"  # marker P45: game G2
 # Adapter protocol (dibaca orchestrator via importlib):
 MARKET_CODE     = "G2G"
 HARGA_COL       = 7                              # G (G2G pakai kolom harga berbeda dari GM)
+MAX_IMAGES      = 10                             # G2G URL paste, cap 10
 CACHE_SENTINEL  = NO_OPTIONS_SENTINEL_G2G
 
 _G2G_LABEL_EXCLUDE = {

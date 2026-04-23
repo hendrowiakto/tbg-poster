@@ -33,6 +33,7 @@ GM_CREATE_URL = "https://gamemarket.gg/dashboard/create-listing"
 # Adapter protocol (dibaca orchestrator via importlib):
 MARKET_CODE     = "GM"
 HARGA_COL       = 8                              # H
+MAX_IMAGES      = 20                             # GM bulk upload, cap 20
 CACHE_SENTINEL  = "[tidak ditemukan options]"
 
 

@@ -900,13 +900,28 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
     except Exception as e:
         add_log(f"Gagal tulis ON WORKING: {e}")
 
-    # Image prep - unified 1x: scrape + download sekali.
+    # Image prep - unified 1x: scrape + download sekali. Max gambar dihitung
+    # dari market teraktif di batch (PA=1, ELDO=5, G2G/ZEUS=10, GM=20) supaya
+    # ndak waste bandwidth download 20 kalau batch cuma PA/ELDO.
     downloaded_paths = []
     image_urls_all = []
     is_imgur = bool(gambar_url) and "imgur.com/a/" in gambar_url
     if gambar_url:
-        add_log(f"[IMG] Prep gambar: {gambar_url}")
-        downloaded_paths, image_urls_all, is_imgur = download_images_with_urls(gambar_url)
+        max_images_needed = 20
+        try:
+            per_market = []
+            for e in markets_todo:
+                mod = _get_market_module(e["code"])
+                per_market.append(getattr(mod, "MAX_IMAGES", 20) if mod else 20)
+            if per_market:
+                max_images_needed = max(per_market)
+        except Exception:
+            pass
+        tags = ",".join(e["code"] for e in markets_todo)
+        add_log(f"[IMG] Prep gambar (max={max_images_needed}, market={tags}): {gambar_url}")
+        downloaded_paths, image_urls_all, is_imgur = download_images_with_urls(
+            gambar_url, max_images=max_images_needed
+        )
 
     # Cache loading per market - paralel (ensure_form_options_cache handle
     # internal lock + memcache). Hasil di-attach ke entry market.

@@ -62,6 +62,7 @@ ZEUS_CREATE_URL = "https://zeusx.com/create-offer"
 # Adapter protocol (dibaca orchestrator via importlib):
 MARKET_CODE     = "ZEUS"
 HARGA_COL       = 8                                 # H
+MAX_IMAGES      = 10                                # ZEUS file one-by-one, cap 10
 NO_OPTIONS_SENTINEL_ZEUS = "[tidak ditemukan options ZEUS]"
 CACHE_SENTINEL  = NO_OPTIONS_SENTINEL_ZEUS
 

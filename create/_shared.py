@@ -275,8 +275,10 @@ def scrape_gdrive(folder_url):
 
 
 # ===================== IMAGE DOWNLOADERS =====================
-def download_images_with_urls(gambar_url):
+def download_images_with_urls(gambar_url, max_images=20):
     """Unified image prep: scrape URL list ONCE + download ke temp_images.
+    max_images: batas jumlah gambar yg di-download. Orchestrator set ini
+    berdasar market teraktif di batch (e.g. PA=1, ELDO=5, ZEUS/G2G=10, GM=20).
     Return (local_paths, image_urls, is_imgur).
     - GM pakai local_paths (file upload).
     - G2G pakai image_urls kalau is_imgur (URL langsung), else ({} = skip + URL
@@ -314,6 +316,12 @@ def download_images_with_urls(gambar_url):
     if not image_urls:
         _log("Tidak ada URL gambar ditemukan di album")
         return [], [], is_imgur
+
+    # Slice berdasar max_images kebutuhan market teraktif. Hemat bandwidth
+    # kalau batch cuma PA (1) atau ELDO (5) instead dari default 20.
+    if max_images and max_images < len(image_urls):
+        _log(f"Slice URL gambar: {len(image_urls)} -> {max_images} (max market aktif)")
+        image_urls = image_urls[:max_images]
 
     temp_dir = _get_temp_dir()
     local_paths = []

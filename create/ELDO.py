@@ -56,6 +56,7 @@ ELDO_ORIGIN         = "https://www.eldorado.gg"
 ELDO_START_URL      = "https://www.eldorado.gg/sell/offer/Account"
 ELDO_SUCCESS_URL    = "https://www.eldorado.gg/dashboard/offers?category=Account"
 ELDO_MAX_IMAGES     = 5
+MAX_IMAGES          = ELDO_MAX_IMAGES            # alias standar adapter protocol
 
 # Adapter protocol:
 MARKET_CODE         = "ELDO"

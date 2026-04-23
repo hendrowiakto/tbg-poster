@@ -54,6 +54,7 @@ PA_ORIGIN          = "https://member.playerauctions.com"
 PA_START_URL       = "https://member.playerauctions.com/offers/creation"
 PA_SUCCESS_URL     = "https://member.playerauctions.com/offers/creation/success"
 PA_MAX_IMAGES      = 1
+MAX_IMAGES         = PA_MAX_IMAGES               # alias standar adapter protocol
 
 # Adapter protocol:
 MARKET_CODE        = "PA"
