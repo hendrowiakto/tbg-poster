@@ -199,11 +199,18 @@ def orchestrator_loop(ctx):
             ctx.progress.set(bot_name, {"phase": "running"})
             ctx.logger.log("app", f"Mulai cycle {bot_name.upper()}")
             n = 0
+            cycle_t0 = time.time()
             try:
                 n = bot.run_one_cycle(ctx)
+                elapsed = time.time() - cycle_t0
+                if elapsed < 60:
+                    dur = f"{elapsed:.1f}s"
+                else:
+                    mins, secs = divmod(int(elapsed), 60)
+                    dur = f"{mins}m {secs}s"
                 if n and n > 0:
                     processed = True
-                    ctx.logger.log("app", f"Cycle {bot_name.upper()} selesai - {n} item diproses")
+                    ctx.logger.log("app", f"Cycle {bot_name.upper()} selesai dalam {dur} - {n} listing diproses")
                 else:
                     ctx.logger.log("app", f"Cycle {bot_name.upper()} idle - tidak ada kerjaan")
             except Exception as e:

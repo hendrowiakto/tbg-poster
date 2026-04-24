@@ -435,7 +435,7 @@ def _fill_product_name(page, title):
     raise Exception("Product Name input tidak ketemu")
 
 
-def _upload_one_image_u7(page, path, idx, total, timeout_ms=60000):
+def _upload_one_image_u7(page, path, idx, total, timeout_ms=30000):
     """Upload 1 gambar: click upload area -> set file -> wait confirm popup ->
     click Confirm -> wait thumbnail. Return True/False."""
     baseline = 0
@@ -667,17 +667,22 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             # Step 5: Product Name (title dari J)
             _fill_product_name(page, title)
 
-            # Step 6-8: Upload images one-by-one dgn confirm popup, max 5
+            # Step 6-8: Upload images one-by-one dgn confirm popup, max 5.
+            # Abort-after-first-fail: kalau upload pertama timeout/exception,
+            # page U7 biasanya stuck loading -> lanjut upload 2-5 sia-sia dan
+            # boros sampai 5 menit. Short-circuit: gagalkan listing, pindah row.
             to_upload = (image_paths or [])[:U7_MAX_IMAGES]
             if to_upload:
                 total = len(to_upload)
                 for i, path in enumerate(to_upload, start=1):
                     try:
                         ok = _upload_one_image_u7(page, path, i, total)
-                        if ok:
-                            uploaded += 1
                     except Exception as e:
                         add_log(f"[U7] Upload {i}/{total} exception: {str(e)[:80]}")
+                        return False, f"Upload {i}/{total} exception: {str(e)[:80]}", uploaded
+                    if not ok:
+                        return False, f"Upload {i}/{total} timeout, abort listing (U7 stuck)", uploaded
+                    uploaded += 1
 
             # Step 9: Description (line 1 = raw URL no scheme, line 2+ deskripsi)
             if raw_image_url:
