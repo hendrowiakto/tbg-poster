@@ -830,9 +830,20 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             except Exception as e:
                 return False, f"Submit: {str(e)[:100]}", uploaded
 
-            # Step 16: Sukses detection - redirect ke /offers/creation/success
+            # Step 16: Sukses / error detection - poll paralel tiap 500ms:
+            # 1. URL redirect ke /creation/success -> sukses
+            # 2. p.text-danger muncul di bawah submit button -> early fail
+            #    (PA sering tolak dengan inline error, e.g. "Provided login
+            #    name already exists in the for-sale offer" - ndak perlu nunggu
+            #    timeout full)
+            INLINE_ERR_SELECTORS = [
+                "p.text-danger.p-t-1",            # PA inline error di bawah submit
+                ".ant-message-error",              # toast error
+                ".ant-notification-notice-error",  # notification error
+            ]
             redirected = False
-            for _ in range(120):  # 1 menit
+            inline_err = None
+            for _ in range(120):  # 1 menit max polling
                 page.wait_for_timeout(500)
                 try:
                     cur = page.url
@@ -841,17 +852,33 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                         break
                 except Exception:
                     pass
+                # Early error detection
+                for sel in INLINE_ERR_SELECTORS:
+                    try:
+                        loc = page.locator(sel).first
+                        if loc.count() > 0 and loc.is_visible():
+                            t = (loc.inner_text(timeout=800) or "").strip()
+                            if t and 5 <= len(t) <= 200:
+                                inline_err = t
+                                break
+                    except Exception:
+                        continue
+                if inline_err:
+                    break
 
             if redirected:
                 add_log(f"[PA] Redirect ke: {page.url} -> sukses")
                 smart_wait(page, 800, 1500)
                 return True, None, uploaded
 
-            # Fallback: cek error message
+            if inline_err:
+                add_log(f"[PA] Inline error detected: {inline_err[:200]}")
+                return False, inline_err[:120], uploaded
+
+            # Fallback: cek error message di tempat lain (form field, dll)
             try:
                 err_msgs = []
                 for sel in [
-                    ".ant-message-error", ".ant-notification-notice-error",
                     ".ant-form-item-has-error .ant-form-item-explain",
                     "[role='alert']",
                 ]:
@@ -873,7 +900,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                     return False, f"Form error: {combined[:120]}", uploaded
             except Exception:
                 pass
-            return False, "Submit: tidak redirect dalam 2 menit", uploaded
+            return False, "Submit: tidak redirect dalam 1 menit", uploaded
 
         except Exception as e:
             pesan = str(e)
