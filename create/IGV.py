@@ -53,7 +53,7 @@ CACHE_SENTINEL           = NO_OPTIONS_SENTINEL_IGV
 
 # Fix text untuk field delivery method (Account, Password, dll). Diisi semua
 # field required di section Delivery method (jumlah field berbeda per game).
-IGV_DELIVERY_FIX_TEXT    = "PleaseContactSeller@IGVChat.ForFullDetails"
+IGV_DELIVERY_FIX_TEXT    = "PleaseContactSeller@IGVChat.ForDetails"
 # Warranty period untuk field Insurance
 IGV_WARRANTY_OPTION      = "14Days"
 
@@ -289,12 +289,28 @@ def _fill_description_jodit(page, description, raw_image_url):
 
 
 def _click_next_step2(page):
-    """Tombol Next di bawah Step 2 -> navigate ke ?step=3."""
+    """Tombol Next di bawah Step 2 -> navigate ke ?step=3. Multi-selector karena
+    layout Step 2 ada tombol Previous di sebelah yg juga primary class -
+    pakai :text-is exact + pilih last match (Next ada di paling kanan)."""
     add_log("[IGV] Klik Next (Step 2 -> Step 3)")
-    btn = page.locator(
-        "button.el-button--primary.el-button--large:has-text('Next')"
-    ).first
-    btn.wait_for(state="visible", timeout=10000)
+    btn = None
+    for sel in [
+        # Exact text + primary large (paling spesifik)
+        "button.el-button--primary.el-button--large >> span:text-is('Next')",
+        # Span child 'Next' (handle layout dengan <span>Next<img/></span>)
+        "button.el-button--primary:has(span:text-is('Next'))",
+        # Fallback: any primary large dengan text Next (last match = rightmost)
+        "button.el-button--primary.el-button--large:has-text('Next')",
+    ]:
+        try:
+            loc = page.locator(sel).last
+            loc.wait_for(state="visible", timeout=3000)
+            btn = loc
+            break
+        except Exception:
+            continue
+    if btn is None:
+        raise Exception("Tombol Next Step 2 tidak ketemu")
     btn.click()
     try:
         page.wait_for_url(IGV_STEP3_URL_PATTERN, timeout=15000)
