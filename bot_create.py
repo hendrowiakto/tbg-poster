@@ -1243,11 +1243,22 @@ def run_one_cycle(ctx):
 
     t = threading.Thread(target=_row_runner, daemon=True, name=f"create-row-{wid}")
     t.start()
-    t.join(timeout=1800)  # max 30 menit total per row (GM+G2G paralel)
+    t.join(timeout=600)  # max 10 menit total per row (semua market paralel)
     if t.is_alive():
-        add_log(f"{t.name} timeout 30 menit, thread masih jalan, lanjut scan...")
+        add_log(f"{t.name} timeout 10 menit, thread masih jalan, lanjut scan...")
         if _ctx is not None:
             _ctx.zombies.track(t, "create")
+        # Tulis K column supaya row ditandai timeout. cleanup_tabs() di
+        # orchestrator setelah return akan tutup Chrome tab -> zombie thread
+        # throw exception saat akses page & exit sendiri.
+        try:
+            safe_update_cell(
+                sheet_obj, baris_nomor, KOLOM_CATATAN,
+                "❌ Lebih dari batas timeout (10 menit) - batch di-clear",
+                timeout=30, desc=f"timeout K {baris_nomor}",
+            )
+        except Exception as e:
+            add_log(f"Gagal tulis K timeout: {e}")
 
     ctx.progress.set(BOT_NAME, {"phase": "idle", "current_sheet": None,
                                  "current_row": None})
