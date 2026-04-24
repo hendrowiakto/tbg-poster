@@ -607,7 +607,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                 # Build body: baris 1 URL stripped scheme, baris 2+ deskripsi
                 if raw_image_url:
                     raw_line = re.sub(r"^https?://", "", raw_image_url.strip())
-                    body = f"{raw_line}\n{deskripsi or ''}"
+                    body = f"Full Screenshot Detail: {raw_line}\n{deskripsi or ''}"
                 else:
                     body = deskripsi or ""
                 desc_ta.fill(body)

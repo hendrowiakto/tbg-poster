@@ -524,7 +524,7 @@ def _fill_description(page, description, raw_image_url=None):
 
     url_line = ""
     if raw_image_url:
-        url_line = re.sub(r"^https?://", "", raw_image_url.strip())
+        url_line = "Full Screenshot Detail: " + re.sub(r"^https?://", "", raw_image_url.strip())
 
     # Build list of paragraph: URL dulu, lalu body lines.
     paragraphs = []

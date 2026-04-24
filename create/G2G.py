@@ -1107,7 +1107,7 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
     final_desc = description or ""
     if raw_image_url:
         obf = _obfuscate_image_url(raw_image_url)
-        final_desc = f"{obf}\n{final_desc}".rstrip()
+        final_desc = f"Full Screenshot Detail: {obf}\n{final_desc}".rstrip()
 
     # Hanya feed image_urls ke form G2G kalau source imgur (URL whitelisted).
     urls_for_form = image_urls if (is_imgur and image_urls) else []
