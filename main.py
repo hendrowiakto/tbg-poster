@@ -25,11 +25,24 @@ from shared import (
 from webview_app import WebviewApp
 
 # ===================== ORCHESTRATOR =====================
+# Top-N picking strategy untuk prescan: bot delete/create proses 1 row/cycle,
+# jadi cukup scan 1 tab teratas. Bot diskon punya N worker paralel (MAX_WORKER),
+# jadi dinamis - scan tab teratas sampai cumulative count >= budget worker
+# (capped supaya ndak edge case scan kebanyakan tab kalau E per-tab kecil-kecil).
+TOP_N_DELETE             = 1
+TOP_N_CREATE             = 1
+DISKON_MAX_TABS_HARD_CAP = 5
+
+
 def prescan_link(ctx):
     """1 batch_get untuk LINK!A + C + D + E -> dict per-bot tab aktif.
     Hemat vs dulu yg 3x batch_get (1 per bot). Return:
         {"delete": [tab_names] atau None, "create": [...] atau None, "diskon": [...] atau None}
     None = prescan gagal (bot fallback ke get_active_sheet_names sendiri).
+
+    Top-N strategy: delete/create cuma kasih 1 tab teratas (1 row/cycle),
+    diskon cumulative budget sesuai DISKON_MAX_WORKER (capped 5 tab).
+    Total count tetap di-track akurat di ctx.task_counts (untuk badge UI).
     """
     try:
         resp = ctx.sheets.spreadsheet.values_batch_get(
@@ -51,7 +64,9 @@ def prescan_link(ctx):
     col_e = vranges[3].get("values", []) if len(vranges) >= 4 else []
 
     def _scan(counter_col):
-        tabs, total = [], 0
+        """Return list of (tab_name, count) untuk tab dengan count > 0,
+        urutan sesuai LINK sheet (top -> bottom)."""
+        pairs = []
         for i, arow in enumerate(col_a):
             name = (arow[0] if arow else "").strip()
             if not name:
@@ -64,13 +79,43 @@ def prescan_link(ctx):
             except (ValueError, TypeError):
                 count = 0
             if count > 0:
-                tabs.append(name)
-                total += count
-        return tabs, total
+                pairs.append((name, count))
+        return pairs
 
-    del_tabs, del_sum = _scan(col_c)
-    cre_tabs, cre_sum = _scan(col_d)
-    dis_tabs, dis_sum = _scan(col_e)
+    def _pick_top_n(pairs, n):
+        """Ambil n tab teratas saja."""
+        return [name for name, _ in pairs[:n]]
+
+    def _pick_cumulative(pairs, budget, max_tabs):
+        """Ambil tab teratas sampai cumulative count >= budget, atau hit max_tabs."""
+        picked = []
+        cum = 0
+        for name, count in pairs:
+            if len(picked) >= max_tabs:
+                break
+            picked.append(name)
+            cum += count
+            if cum >= budget:
+                break
+        return picked
+
+    del_pairs = _scan(col_c)
+    cre_pairs = _scan(col_d)
+    dis_pairs = _scan(col_e)
+
+    # Total sum semua tab (untuk task_counts badge UI - harus akurat, bukan top-N)
+    del_sum = sum(c for _, c in del_pairs)
+    cre_sum = sum(c for _, c in cre_pairs)
+    dis_sum = sum(c for _, c in dis_pairs)
+
+    # Diskon budget = MAX_WORKER bot_diskon (config DISKON_MAX_WORKER, range 1-10).
+    diskon_budget = max(1, min(10, ctx.config.get_int("DISKON_MAX_WORKER", 5)))
+
+    # Apply top-N picking per bot
+    del_tabs = _pick_top_n(del_pairs, n=TOP_N_DELETE)
+    cre_tabs = _pick_top_n(cre_pairs, n=TOP_N_CREATE)
+    dis_tabs = _pick_cumulative(dis_pairs, budget=diskon_budget,
+                                max_tabs=DISKON_MAX_TABS_HARD_CAP)
 
     # Stash ke ctx supaya StateBridge bisa push ke UI sebagai badge "DELETE (N)"
     ctx.task_counts = {"delete": del_sum, "create": cre_sum, "diskon": dis_sum}
@@ -78,14 +123,15 @@ def prescan_link(ctx):
     result = {"delete": del_tabs, "create": cre_tabs, "diskon": dis_tabs}
     # Skip log kalau semua idle - orchestrator sudah log "Semua idle, retry in Xs..."
     # setelahnya, jadi prescan 0(0) 0(0) 0(0) cuma noise.
+    # Format: DELETE=picked/total_active(total_count) - misal "DELETE=1/22(141)"
     if del_sum or cre_sum or dis_sum:
         parts = []
         if del_sum:
-            parts.append(f"DELETE={len(del_tabs)}({del_sum})")
+            parts.append(f"DELETE={len(del_tabs)}/{len(del_pairs)}({del_sum})")
         if cre_sum:
-            parts.append(f"CREATE={len(cre_tabs)}({cre_sum})")
+            parts.append(f"CREATE={len(cre_tabs)}/{len(cre_pairs)}({cre_sum})")
         if dis_sum:
-            parts.append(f"DISKON={len(dis_tabs)}({dis_sum})")
+            parts.append(f"DISKON={len(dis_tabs)}/{len(dis_pairs)}({dis_sum})")
         ctx.logger.log("app", f"Prescan LINK: {' '.join(parts)}")
     return result
 
