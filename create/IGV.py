@@ -321,13 +321,13 @@ def _click_next_step2(page):
 
 
 # ===================== STEP 3 HELPERS =====================
-def _fill_delivery_method(page):
+def _fill_delivery_method(page, login_name=None):
     """Section 'Delivery method' di Step 3. Flow per HTML kompleks:
       - Shipping method radio (Immediate shipping) biasanya udah ke-check default -> skip
       - Delivery time: disabled/auto -> skip
       - Field dinamis (Account, Password, Alternate Mail, dll - jumlah berbeda
-        per game): isi SEMUA yg is-required dengan IGV_DELIVERY_FIX_TEXT.
-        Skip field yg Alternate Mail (optional, ndak is-required).
+        per game): field PERTAMA isi `login_name` (kolom B sheet), field ke-2+
+        isi `IGV_DELIVERY_FIX_TEXT`. Kalau login_name kosong, semua pakai fix text.
 
     Strategi: loop semua is-required form-item di section -> fill kalau ada
     input text enabled (non-readonly, non-disabled). Skip radio/select/disabled.
@@ -356,13 +356,21 @@ def _fill_delivery_method(page):
             add_log(f"[IGV] Skip '{label}' (bukan input text enabled)")
             continue
 
+        # Field pertama = login_name (kalau ada). Sisanya = fix text.
+        if filled == 0 and login_name:
+            value = login_name
+            tag = f"login_name='{login_name}'"
+        else:
+            value = IGV_DELIVERY_FIX_TEXT
+            tag = "fix text"
+
         try:
             input_el.wait_for(state="visible", timeout=5000)
             input_el.click()
             smart_wait(page, 200, 400)
-            input_el.fill(IGV_DELIVERY_FIX_TEXT)
+            input_el.fill(value)
             smart_wait(page, 200, 400)
-            add_log(f"[IGV] Fill delivery '{label}' = fix text")
+            add_log(f"[IGV] Fill delivery '{label}' = {tag}")
             filled += 1
         except Exception as e:
             add_log(f"[IGV] Fill delivery '{label}' gagal: {str(e)[:80]}")
@@ -680,12 +688,15 @@ def cache_looks_bogus(cache):
 
 
 def create_listing(game_name, title, deskripsi, harga, field_mapping, image_paths,
-                   raw_image_url=None, image_future=None):
+                   raw_image_url=None, image_future=None, login_name=None):
     """Full IGV create flow. Return (ok, err, uploaded_count).
 
     `image_future` (optional): kalau disediain, gambar di-resolve via future
     tepat sebelum step upload (async download pattern). Fallback ke
-    `image_paths` kwarg kalau future None (legacy)."""
+    `image_paths` kwarg kalau future None (legacy).
+
+    `login_name` (optional): value dari kolom B sheet. Dipakai untuk fill
+    field PERTAMA di Delivery method (field ke-2+ pakai IGV_DELIVERY_FIX_TEXT)."""
     uploaded = 0
     cdp_url = _get_chrome_cdp_url()
     if not cdp_url:
@@ -741,7 +752,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             _click_next_step2(page)
 
             # Step 3a: Delivery method (fix text untuk semua required input)
-            _fill_delivery_method(page)
+            _fill_delivery_method(page, login_name=login_name)
 
             # Step 3b: Price (USD dari kolom H)
             _fill_price(page, harga)
@@ -777,14 +788,26 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
         raw_image_url=None, is_imgur=False, image_future=None):
-    """Adapter entry dipanggil orchestrator. Return (ok, k_line)."""
+    """Adapter entry dipanggil orchestrator. Return (ok, k_line).
+
+    Baca kolom B (login_name) dari sheet untuk diisi ke field pertama
+    Delivery method di Step 3."""
     _worker_local.worker_id = f"{worker_id}-IGV"
+
+    login_name = None
+    try:
+        raw = sheet.cell(baris_nomor, 2).value  # B = col 2
+        if raw is not None:
+            login_name = str(raw).strip()
+    except Exception as e:
+        add_log(f"[IGV] Gagal baca kolom B: {str(e)[:80]}")
 
     ok, err, uploaded = create_listing(
         game_name, title, description or "", harga,
         field_mapping or {}, (image_paths or [])[:MAX_IMAGES] if image_paths else None,
         raw_image_url=raw_image_url,
         image_future=image_future,
+        login_name=login_name,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
