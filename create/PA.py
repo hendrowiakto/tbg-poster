@@ -544,6 +544,14 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             if price_clean.count(".") > 1:
                 parts = price_clean.split(".")
                 price_clean = "".join(parts[:-1]) + "." + parts[-1]
+            # PA minimum price policy: $5. Kalau harga sumber < $5, naikkan ke $5
+            # biar form ndak reject (PA tolak listing < $5 sejak 2026).
+            try:
+                if float(price_clean) < 5:
+                    add_log(f"[PA] Harga sumber ${price_clean} < $5 minimum, override ke $5")
+                    price_clean = "5"
+            except (ValueError, TypeError):
+                pass  # biar error handling existing di page.fill yang nangkap
             add_log(f"[PA] Isi Price: ${price_clean}")
             try:
                 price_input = page.locator(
