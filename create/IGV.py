@@ -213,24 +213,45 @@ def _upload_product_images(page, image_paths):
         add_log(f"[IGV] set_input_files gagal: {str(e)[:80]}")
         return 0
 
-    # Tunggu thumbnail render (el-upload-list bertambah item).
-    # Polling singkat (max 30s total untuk 5 gambar).
+    # Tunggu upload SELESAI - bukan cuma item muncul. Element-Plus el-upload
+    # punya class status: is-uploading (progress) -> is-success (done) /
+    # is-error (fail). Poll sampai semua item status 'is-success' atau
+    # tidak ada yg 'is-uploading' lagi.
     deadline = 30  # detik
     poll_interval = 1.0
+    item_base = (
+        "div.el-form-item:has(.el-form-item__label:has-text('Product image')) "
+        "ul.el-upload-list li.el-upload-list__item"
+    )
+    expected = len(paths)
+    success_count = 0
     for _ in range(int(deadline / poll_interval)):
         smart_wait(page, int(poll_interval * 1000), int(poll_interval * 1000))
         try:
-            uploaded_count = section.locator(
-                "div.el-form-item:has(.el-form-item__label:has-text('Product image')) "
-                "ul.el-upload-list li.el-upload-list__item"
-            ).count()
+            total = section.locator(item_base).count()
+            success_count = section.locator(f"{item_base}.is-success").count()
+            uploading_count = section.locator(f"{item_base}.is-uploading").count()
         except Exception:
-            uploaded_count = 0
-        if uploaded_count >= len(paths):
-            add_log(f"[IGV] Upload Product image OK: {uploaded_count} file")
-            return uploaded_count
-    add_log(f"[IGV] Upload Product image timeout, {uploaded_count}/{len(paths)} ke-upload")
-    return uploaded_count
+            total = 0
+            success_count = 0
+            uploading_count = 1  # assume still uploading
+        # Done jika: semua item sukses, atau total>=expected & ndak ada yg uploading
+        if success_count >= expected:
+            add_log(f"[IGV] Upload Product image OK: {success_count}/{expected} sukses")
+            page.wait_for_timeout(1000)  # settle delay sebelum flow lanjut
+            return success_count
+        if total >= expected and uploading_count == 0:
+            add_log(
+                f"[IGV] Upload selesai (tanpa is-uploading aktif): "
+                f"sukses={success_count}/{expected}"
+            )
+            page.wait_for_timeout(1000)  # settle delay sebelum flow lanjut
+            return success_count
+    add_log(
+        f"[IGV] Upload Product image timeout: "
+        f"sukses={success_count}/{expected}, lanjut (mungkin partial)"
+    )
+    return success_count
 
 
 def _fill_description_jodit(page, description, raw_image_url):
@@ -450,6 +471,7 @@ def _click_post_product(page):
     try:
         page.wait_for_url(IGV_SUCCESS_URL_PATTERN, timeout=20000)
         add_log("[IGV] Redirect ke /product/my - post sukses")
+        page.wait_for_timeout(1000)  # delay 1s sebelum tab close (settle)
         return True, None
     except Exception:
         pass
@@ -459,6 +481,7 @@ def _click_post_product(page):
         toast = page.locator(".el-message--success, .el-notification--success").first
         toast.wait_for(state="visible", timeout=8000)
         add_log("[IGV] Toast success IGV muncul - post sukses")
+        page.wait_for_timeout(1000)  # delay 1s sebelum tab close (settle)
         return True, None
     except Exception:
         pass
