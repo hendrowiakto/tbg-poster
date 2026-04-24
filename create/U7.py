@@ -51,7 +51,7 @@ def smart_wait(page, min_ms, max_ms):
 U7_ORIGIN          = "https://www.u7buy.com"
 U7_START_URL       = "https://www.u7buy.com/member/offers/create-offer"
 U7_SUCCESS_URL     = "https://www.u7buy.com/member/offers"
-U7_MAX_IMAGES      = 5
+U7_MAX_IMAGES      = 3
 
 # Adapter protocol:
 MARKET_CODE        = "U7"
@@ -332,10 +332,10 @@ def _click_next_step(page):
 
 # ===================== DROPDOWN HELPERS =====================
 def _open_u7_select(page, trigger_locator):
-    """Buka u7-select dropdown dengan multi-strategy click.
-    Layout baru: div.u7-select (tabindex=0) > div.u7-placeholder (click handler
-    di child Vue). Direct click outer kadang ndak trigger dropdown - fallback
-    click inner placeholder atau focus+Enter."""
+    """Buka u7-select dropdown dengan multi-strategy click + retry loop.
+    Layout u7: div.u7-select (tabindex=0) > div.u7-placeholder (Vue click handler).
+    Intermittent: click kadang ndak trigger karena element belum stable/visible
+    atau Vue state transient. Retry 3 round, tiap round 4 strategy berbeda."""
     def _opts_visible():
         try:
             return page.locator(
@@ -344,35 +344,74 @@ def _open_u7_select(page, trigger_locator):
         except Exception:
             return False
 
-    # Strategy 1: click outer (old behavior)
+    # Ensure visible + scroll to center sebelum click (element di bawah viewport
+    # sering bikin click miss hit atau opts render di luar layar).
     try:
-        trigger_locator.click()
-        smart_wait(page, 400, 700)
-        if _opts_visible():
-            return True
+        trigger_locator.scroll_into_view_if_needed(timeout=3000)
     except Exception:
         pass
-
-    # Strategy 2: click inner .u7-placeholder (layout baru)
     try:
-        inner = trigger_locator.locator(".u7-placeholder").first
-        if inner.count() > 0:
-            inner.click()
-            smart_wait(page, 400, 700)
+        trigger_locator.wait_for(state="visible", timeout=3000)
+    except Exception:
+        pass
+    smart_wait(page, 200, 400)
+
+    for attempt in range(3):
+        # Strategy 1: click outer div.u7-select
+        try:
+            trigger_locator.click(timeout=3000)
+            smart_wait(page, 500, 800)
             if _opts_visible():
                 return True
-    except Exception:
-        pass
+        except Exception:
+            pass
 
-    # Strategy 3: focus + Enter (tabindex=0 keyboard activation)
-    try:
-        trigger_locator.focus()
-        page.keyboard.press("Enter")
-        smart_wait(page, 400, 700)
-        if _opts_visible():
-            return True
-    except Exception:
-        pass
+        # Strategy 2: click inner .u7-placeholder (actual click handler target)
+        try:
+            inner = trigger_locator.locator(".u7-placeholder").first
+            if inner.count() > 0:
+                inner.click(timeout=3000)
+                smart_wait(page, 500, 800)
+                if _opts_visible():
+                    return True
+        except Exception:
+            pass
+
+        # Strategy 3: focus + Enter (tabindex=0 keyboard activation)
+        try:
+            trigger_locator.focus()
+            page.keyboard.press("Enter")
+            smart_wait(page, 500, 800)
+            if _opts_visible():
+                return True
+        except Exception:
+            pass
+
+        # Strategy 4: JS-level click (bypass any click interception/overlay)
+        try:
+            trigger_locator.evaluate("(el) => el.click()")
+            smart_wait(page, 500, 800)
+            if _opts_visible():
+                return True
+            # Juga coba fire event manual untuk Vue listener
+            trigger_locator.evaluate("""(el) => {
+                ['mousedown','mouseup','click'].forEach(t => {
+                    el.dispatchEvent(new MouseEvent(t, {bubbles: true, cancelable: true, view: window}));
+                });
+            }""")
+            smart_wait(page, 500, 800)
+            if _opts_visible():
+                return True
+        except Exception:
+            pass
+
+        # Kalau masih gagal, close sisa dropdown yg mungkin half-open + retry
+        if attempt < 2:
+            try:
+                _close_u7_dropdown(page)
+            except Exception:
+                pass
+            smart_wait(page, 600, 900)
 
     return False
 
