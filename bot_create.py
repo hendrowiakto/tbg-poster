@@ -1155,7 +1155,10 @@ def run_one_cycle(ctx):
             m["cache_parsed"] = _parse_cache_cell(m.get("cache_raw", ""), sentinel)
 
         sheet_obj = None
-        for row_idx, r in enumerate(rows):
+        # Bottom-up scan: kerjakan row paling bawah dulu. Biasanya row bawah =
+        # data terbaru yg user input, jadi di-prioritaskan supaya listing baru
+        # cepat masuk market (row atas yg stuck PERLU POST bisa nunggu).
+        for row_idx, r in reversed(list(enumerate(rows))):
             if r.get("trigger_aj", "").strip().upper() != "PERLU POST":
                 continue
 
