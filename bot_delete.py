@@ -460,11 +460,12 @@ def delete_listing_pa(kode_listing, manage_link):
         page = None
 
         try:
-            # Timeout cap: connect 10s, semua action default 60s - jangan sampai hang selamanya
+            # Timeout cap: connect 10s, action default 30s (PA flow 2-tahap
+            # lebih lama dari market lain, tight timeout untuk cegah stuck).
             browser = p.chromium.connect_over_cdp(CHROME_CDP_URL, timeout=10000)
             context = browser.contexts[0]
-            context.set_default_timeout(60000)
-            context.set_default_navigation_timeout(60000)
+            context.set_default_timeout(30000)
+            context.set_default_navigation_timeout(30000)
             page = context.new_page()
             add_log(f"[PA] Membuka halaman: {manage_link}")
             page.goto(manage_link)

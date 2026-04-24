@@ -36,7 +36,6 @@ from create._shared import (
     xpath_literal as _xpath_literal,
     smart_wait as _base_smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -658,11 +657,8 @@ def _check_terms(page):
 
 # ===================== PUBLIC ENTRIES =====================
 def create_listing(game_name, title, description, harga, field_mapping,
-                   image_paths, raw_image_url=None, image_future=None):
-    """Full flow isi form + submit. Return (ok, err, uploaded_count).
-
-    `image_future` (optional): async download future. Di-resolve tepat sebelum
-    step upload."""
+                   image_paths, raw_image_url=None):
+    """Full flow isi form + submit. Return (ok, err, uploaded_count)."""
     uploaded_count = 0
     with sync_playwright() as p:
         page = None
@@ -716,19 +712,8 @@ def create_listing(game_name, title, description, harga, field_mapping,
             # 7. Description (URL line + body)
             _fill_description(page, description, raw_image_url=raw_image_url)
 
-            # Resolve image future (async download pattern). Block sampai
-            # download selesai. Fallback ke image_paths kwarg kalau None.
-            if image_future is not None:
-                try:
-                    resolved_paths, _, _ = resolve_image_future(image_future)
-                    image_paths = resolved_paths
-                except RuntimeError as e:
-                    return False, str(e), uploaded_count
-            if not image_paths:
-                return False, "Gambar tidak bisa di download", uploaded_count
-
             # 8. Upload gambar
-            uploaded_count = _upload_images(page, image_paths)
+            uploaded_count = _upload_images(page, image_paths or [])
 
             # 9. Centang terms
             _check_terms(page)
@@ -880,7 +865,7 @@ def cache_looks_bogus(cache_dict):
 
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
-        raw_image_url=None, is_imgur=False, image_future=None):
+        raw_image_url=None, is_imgur=False):
     """Adapter entry dipanggil orchestrator. ZEUS quirks:
     - URL album raw (drive/imgur/postimg) di-strip scheme -> line 1 description.
     - Gambar pakai FILE UPLOAD (image_paths), one-per-slot.
@@ -890,9 +875,8 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
 
     ok, err, uploaded = create_listing(
         game_name, title, description or "", harga,
-        field_mapping or {}, image_paths or None,
+        field_mapping or {}, image_paths or [],
         raw_image_url=raw_image_url,
-        image_future=image_future,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:

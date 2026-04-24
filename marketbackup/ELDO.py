@@ -32,7 +32,6 @@ from create._shared import (
     xpath_literal as _xpath_literal,
     smart_wait as _base_smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -502,12 +501,9 @@ def _upload_images_bulk(page, paths, timeout_ms=120000):
 
 
 def create_listing(game_name, title, deskripsi, harga, field_mapping, image_paths,
-                   raw_image_url=None, image_future=None):
+                   raw_image_url=None):
     """Flow partial (step 1-6, belum publish). Return (ok, err, uploaded_count).
-    Sengaja return False di akhir biar ndak kena mark centang TRUE pas testing.
-
-    `image_future` (optional): async download future. Di-resolve tepat sebelum
-    step upload."""
+    Sengaja return False di akhir biar ndak kena mark centang TRUE pas testing."""
     uploaded = 0
     with sync_playwright() as p:
         page = None
@@ -579,17 +575,6 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                 smart_wait(page, 400, 700)
             except Exception as e:
                 return False, f"Title: {str(e)[:100]}", uploaded
-
-            # Resolve image future (async download pattern). Block sampai
-            # download selesai. Fallback ke image_paths kwarg kalau None.
-            if image_future is not None:
-                try:
-                    resolved_paths, _, _ = resolve_image_future(image_future)
-                    image_paths = resolved_paths
-                except RuntimeError as e:
-                    return False, str(e), uploaded
-            if not image_paths:
-                return False, "Gambar tidak bisa di download", uploaded
 
             # Step 5: Upload gambar bulk (max 5 sekaligus, 1 set_input_files call).
             to_upload = (image_paths or [])[:ELDO_MAX_IMAGES]
@@ -822,16 +807,14 @@ def cache_looks_bogus(cache_dict):
 
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
-        raw_image_url=None, is_imgur=False, image_future=None):
+        raw_image_url=None, is_imgur=False):
     """Adapter entry dipanggil orchestrator. Return (ok, k_line)."""
     _worker_local.worker_id = f"{worker_id}-ELDO"
 
     ok, err, uploaded = create_listing(
         game_name, title, description or "", harga,
-        field_mapping or {},
-        (image_paths or [])[:ELDO_MAX_IMAGES] if image_paths else None,
+        field_mapping or {}, (image_paths or [])[:ELDO_MAX_IMAGES],
         raw_image_url=raw_image_url,
-        image_future=image_future,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:

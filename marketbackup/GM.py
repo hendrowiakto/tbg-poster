@@ -24,7 +24,6 @@ from create._shared import (
     xpath_literal as _xpath_literal,
     smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -540,13 +539,8 @@ def _extract_listing_url(page):
     return None
 
 
-def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_paths,
-                   image_future=None):
-    """Full flow isi form & submit. Return (berhasil, error_message).
-
-    `image_future` (optional): future yg resolve ke (paths, urls, is_imgur)
-    dari download background thread. Di-resolve tepat sebelum step upload
-    (async pattern). Fallback ke `image_paths` kalau None."""
+def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_paths):
+    """Full flow isi form & submit. Return (berhasil, error_message)."""
     with sync_playwright() as p:
         page = None
         try:
@@ -677,18 +671,6 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
                     smart_wait(page, 300, 600)
             except Exception:
                 pass
-
-            # Resolve image future (async download pattern). Block sampai
-            # download selesai, update image_paths local. Fallback ke kwarg
-            # image_paths kalau future None (legacy).
-            if image_future is not None:
-                try:
-                    resolved_paths, _, _ = resolve_image_future(image_future)
-                    image_paths = resolved_paths
-                except RuntimeError as e:
-                    return False, str(e), None
-            if not image_paths:
-                return False, "Gambar tidak bisa di download", None
 
             # 11. Upload images - HARDENED: retry + verifikasi preview muncul.
             # Kalau image_paths ada tapi upload gagal total -> abort (jangan publish
@@ -898,37 +880,18 @@ def cache_looks_bogus(cache_dict):
 
 
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
-        field_mapping, image_paths=None, image_urls=None, raw_image_url=None,
-        is_imgur=False, image_future=None):
-    """Adapter entry dipanggil orchestrator. Return (ok: bool, k_line: str).
-
-    Async image pattern: kalau `image_future` disediain, create_listing akan
-    resolve tepat sebelum upload. Fallback ke `image_paths` kwarg legacy kalau
-    future None."""
+        field_mapping, image_paths, image_urls=None, raw_image_url=None, is_imgur=False):
+    """Adapter entry dipanggil orchestrator. Return (ok: bool, k_line: str)."""
     _worker_local.worker_id = f"{worker_id}-GM"
 
-    # Legacy guard: kalau caller pass image_paths=[] / None dan ndak pakai
-    # async (image_future None), tolak langsung. Async pattern handle di dalam.
-    if image_future is None and not image_paths:
+    if not image_paths:
         return False, "❌ GM | Gambar tidak bisa di download"
 
     ok, err, listing_url = create_listing(game_name, title, description, harga,
-                                          field_mapping or {}, image_paths,
-                                          image_future=image_future)
+                                          field_mapping or {}, image_paths)
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
-        # Count gambar - async mode: ambil dari future (create_listing udah
-        # resolve), legacy: pakai kwarg image_paths langsung.
-        count = 0
-        if image_future is not None and image_future.done():
-            try:
-                paths, _, _ = image_future.result(timeout=1)
-                count = len(paths) if paths else 0
-            except Exception:
-                count = 0
-        elif image_paths:
-            count = len(image_paths)
-        base = f"✅ GM | {count} images uploaded | {ts}"
+        base = f"✅ GM | {len(image_paths)} images uploaded | {ts}"
         if listing_url:
             return True, f"{base} | {listing_url}"
         return True, base

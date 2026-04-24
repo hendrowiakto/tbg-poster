@@ -18,6 +18,7 @@ import re
 import json
 import random
 import threading
+import concurrent.futures
 import requests
 from bs4 import BeautifulSoup
 
@@ -272,6 +273,57 @@ def scrape_gdrive(folder_url):
             file_ids.append(fid)
 
     return [f"https://drive.google.com/uc?export=download&id={fid}" for fid in file_ids[:20]]
+
+
+# ===================== IMAGE FUTURE HELPERS =====================
+def start_image_download_async(gambar_url, max_images=20, name="img-dl"):
+    """Spawn background thread untuk download gambar. Return Future yang bakal
+    resolve ke (paths, urls, is_imgur) tuple - sesuai signature
+    download_images_with_urls.
+
+    Dipakai orchestrator bot_create untuk paralelisasi download dengan
+    market flow: market workers start duluan, download jalan paralel,
+    market workers wait future cuma pas step upload gambar.
+
+    Kalau `gambar_url` kosong, return Future yang langsung resolve ke
+    `([], [], False)` - supaya adapter yg cek `image_paths` ndak error.
+    """
+    fut = concurrent.futures.Future()
+    if not gambar_url:
+        fut.set_result(([], [], False))
+        return fut
+
+    def _task():
+        try:
+            result = download_images_with_urls(gambar_url, max_images=max_images)
+            fut.set_result(result)
+        except Exception as e:
+            fut.set_exception(e)
+
+    t = threading.Thread(target=_task, daemon=True, name=name)
+    t.start()
+    return fut
+
+
+def resolve_image_future(image_future, timeout=120):
+    """Block sampai image download future selesai. Return (paths, urls, is_imgur).
+    Raise RuntimeError kalau download fail / timeout. Dipanggil oleh adapter
+    tepat sebelum step upload gambar.
+
+    Semantics:
+    - `image_future is None` -> return (None, None, None). Caller fall-through ke
+      `image_paths` kwarg lama (backwards compat).
+    - Future exception / timeout -> raise RuntimeError dengan message jelas
+      supaya adapter bisa return '❌ XX | Gambar tidak bisa di download'.
+    """
+    if image_future is None:
+        return None, None, None
+    try:
+        return image_future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        raise RuntimeError(f"Download gambar timeout (>{timeout}s)")
+    except Exception as e:
+        raise RuntimeError(f"Download gambar error: {str(e)[:80]}")
 
 
 # ===================== IMAGE DOWNLOADERS =====================

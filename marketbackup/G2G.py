@@ -25,7 +25,6 @@ from create._shared import (
     obfuscate_image_url as _obfuscate_image_url,
     smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -494,10 +493,8 @@ def _g2g_scrape_form_options(page):
 
 
 def _g2g_close_dropdown(page, trigger_loc=None):
-    """Tutup dropdown Quasar. Multi-stage fallback: Escape x2 -> body.click via
-    JS -> toggle trigger -> force hide via JS. Quasar q-menu kadang ndak respon
-    single Escape / coordinate click (navbar/overlay cover area), jadi perlu
-    beberapa strategy berurutan dgn wait pendek."""
+    """Tutup dropdown Quasar yang sedang terbuka. Coba Escape, lalu click
+    body neutral, lalu toggle trigger. Wait sampai q-menu/q-card hidden."""
     def _dropdown_open():
         try:
             return page.evaluate("""() => {
@@ -518,23 +515,21 @@ def _g2g_close_dropdown(page, trigger_loc=None):
         except Exception:
             return False
 
-    # Stage 1: Escape x2 (kadang first Escape ndak register kalau focus lepas)
-    for _ in range(2):
-        try:
-            page.keyboard.press("Escape")
-        except Exception:
-            pass
-        page.wait_for_timeout(200)
-        if not _dropdown_open():
-            return
-
-    # Stage 2: body.click() via JS - Quasar listen ke global click event buat
-    # close menu. Lebih reliable dari mouse coordinate (ndak kena navbar/tombol).
+    # Stage 1: Escape
     try:
-        page.evaluate("document.body.click();")
+        page.keyboard.press("Escape")
     except Exception:
         pass
-    page.wait_for_timeout(250)
+    page.wait_for_timeout(350)
+    if not _dropdown_open():
+        return
+
+    # Stage 2: click body di area neutral (pojok kiri atas halaman, y=5)
+    try:
+        page.mouse.click(5, 5)
+    except Exception:
+        pass
+    page.wait_for_timeout(350)
     if not _dropdown_open():
         return
 
@@ -544,23 +539,7 @@ def _g2g_close_dropdown(page, trigger_loc=None):
             trigger_loc.click(timeout=2000)
         except Exception:
             pass
-        page.wait_for_timeout(300)
-        if not _dropdown_open():
-            return
-
-    # Stage 4: force hide DOM via JS (last resort - nuke q-menu element)
-    try:
-        page.evaluate("""() => {
-            document.querySelectorAll('.q-menu, .q-card.absolute-top').forEach(el => {
-                const r = el.getBoundingClientRect();
-                if (r.width > 0 && r.height > 0) {
-                    el.style.display = 'none';
-                }
-            });
-        }""")
-    except Exception:
-        pass
-    page.wait_for_timeout(150)
+        page.wait_for_timeout(400)
 
 
 # ===================== TEXT INPUT FILLER =====================
@@ -773,15 +752,11 @@ def scrape_form_options(game_name_g2g):
                     pass
 
 
-def create_listing(game_name_g2g, title, deskripsi, harga, field_mapping, image_urls,
-                   image_future=None):
+def create_listing(game_name_g2g, title, deskripsi, harga, field_mapping, image_urls):
     """G2G: full flow isi form & submit. Return (berhasil, error_message, added_count).
     image_urls = list URL imgur (kalau source bukan imgur, list kosong -> skip image step).
     added_count = jumlah URL yang benar2 ter-add ke form (max 10).
-
-    `image_future` (optional): future yg resolve ke (paths, urls, is_imgur).
-    G2G khusus pakai urls (bukan file). Future di-resolve tepat sebelum step
-    paste URL di form. Skip step kalau source bukan imgur (is_imgur False)."""
+    """
     added = 0
     with sync_playwright() as p:
         page = None
@@ -876,16 +851,6 @@ def create_listing(game_name_g2g, title, deskripsi, harga, field_mapping, image_
             if not price_filled:
                 add_log("[G2G] Price input tidak ditemukan")
             smart_wait(page, 400, 900)
-
-            # Resolve image future (async download pattern). G2G pakai URL
-            # (bukan file), jadi kita butuh image_urls + is_imgur. Skip step
-            # kalau source bukan imgur (is_imgur False) - sama behavior legacy.
-            if image_future is not None:
-                try:
-                    _, resolved_urls, resolved_is_imgur = resolve_image_future(image_future)
-                    image_urls = resolved_urls if resolved_is_imgur else []
-                except RuntimeError as e:
-                    return False, str(e), added
 
             # 8. Input image URLs one-by-one + klik "Tambah media". Max 10.
             # G2G butuh direct image URL (imgur i.imgur.com/xxx.jpeg) per slot,
@@ -1131,7 +1096,7 @@ def cache_looks_bogus(cache_dict):
 # ===================== ADAPTER ENTRY =====================
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
-        raw_image_url=None, is_imgur=False, image_future=None):
+        raw_image_url=None, is_imgur=False):
     """Adapter entry dipanggil orchestrator. G2G quirks:
     - URL gambar (raw) di-obfuscate & prepend ke description (lolos auto-delete).
     - Image URL field di form G2G HANYA diisi kalau source imgur. Source lain
@@ -1144,19 +1109,14 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         obf = _obfuscate_image_url(raw_image_url)
         final_desc = f"Full Screenshot Detail: {obf}\n{final_desc}".rstrip()
 
-    if image_future is not None:
-        # Async mode: create_listing handle resolve + filter is_imgur internally.
-        ok, err, added = create_listing(game_name, title, final_desc, harga,
-                                        field_mapping or {}, None,
-                                        image_future=image_future)
-    else:
-        # Legacy sync: hanya feed URL ke form kalau source imgur (whitelisted).
-        urls_for_form = image_urls if (is_imgur and image_urls) else []
-        ok, err, added = create_listing(game_name, title, final_desc, harga,
-                                        field_mapping or {}, urls_for_form)
+    # Hanya feed image_urls ke form G2G kalau source imgur (URL whitelisted).
+    urls_for_form = image_urls if (is_imgur and image_urls) else []
+
+    ok, err, added = create_listing(game_name, title, final_desc, harga,
+                                    field_mapping or {}, urls_for_form)
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
-        if added > 0:
+        if urls_for_form:
             return True, f"✅ G2G | {added} images uploaded | {ts}"
         return True, f"✅ G2G | image URL in description | {ts}"
     return False, f"❌ G2G | {(err or 'unknown')[:80]}"

@@ -55,6 +55,7 @@ from create._shared import (
     scrape_gdrive,
     download_images,
     download_images_with_urls,
+    start_image_download_async,
     cleanup_temp_images,
     extract_image_urls_for_g2g,
     ai_map_fields,
@@ -791,9 +792,15 @@ def _ensure_form_options_cache(sheet, code, game_name, cache_col, initial_cache)
 
 def _run_market(code, sheet, baris_nomor, worker_id, *, game_name, deskripsi,
                 title, harga, field_mapping, image_paths, image_urls,
-                raw_image_url, is_imgur):
+                raw_image_url, is_imgur, image_future=None):
     """Generic market runner: dispatch ke create.{CODE}.run(...). Return
-    (ok: bool, k_line: str)."""
+    (ok: bool, k_line: str).
+
+    `image_future` (optional) = concurrent.futures.Future yg resolve ke
+    (paths, urls, is_imgur) saat download gambar selesai. Adapter yg support
+    async pattern akan `.result()` future ini tepat sebelum step upload.
+    Adapter lama yg belum support akan fallback ke `image_paths`/`image_urls`
+    kwarg lama (backwards compat)."""
     mod = _get_market_module(code)
     if mod is None or not callable(getattr(mod, "run", None)):
         return False, f"❌ {code} | module create.{code}.run tidak ada"
@@ -804,6 +811,7 @@ def _run_market(code, sheet, baris_nomor, worker_id, *, game_name, deskripsi,
             field_mapping=field_mapping or {},
             image_paths=image_paths, image_urls=image_urls,
             raw_image_url=raw_image_url, is_imgur=is_imgur,
+            image_future=image_future,
         )
     except Exception as e:
         return False, f"❌ {code} | {str(e)[:80]}"
@@ -900,12 +908,14 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
     except Exception as e:
         add_log(f"Gagal tulis ON WORKING: {e}")
 
-    # Image prep - unified 1x: scrape + download sekali. Max gambar dihitung
-    # dari market teraktif di batch (PA=1, ELDO=5, G2G/ZEUS=10, GM=20) supaya
-    # ndak waste bandwidth download 20 kalau batch cuma PA/ELDO.
-    downloaded_paths = []
-    image_urls_all = []
-    is_imgur = bool(gambar_url) and "imgur.com/a/" in gambar_url
+    # Image prep - ASYNC: download jalan di background thread, return Future.
+    # Market workers bisa start langsung (navigate + fill form) TANPA nunggu
+    # gambar selesai. Tepat di step upload gambar, adapter panggil
+    # `resolve_image_future()` yang block sampai download selesai (atau
+    # throw kalau gagal). Savings: ~20-40s per row kalau download lama.
+    # Max gambar dihitung dari market teraktif di batch (PA=1, ELDO=5,
+    # G2G/ZEUS=10, GM=20) supaya ndak waste bandwidth.
+    image_future = None
     if gambar_url:
         max_images_needed = 20
         try:
@@ -918,9 +928,10 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
         except Exception:
             pass
         tags = ",".join(e["code"] for e in markets_todo)
-        add_log(f"[IMG] Prep gambar (max={max_images_needed}, market={tags}): {gambar_url}")
-        downloaded_paths, image_urls_all, is_imgur = download_images_with_urls(
-            gambar_url, max_images=max_images_needed
+        add_log(f"[IMG] Async download START (max={max_images_needed}, market={tags}): {gambar_url}")
+        image_future = start_image_download_async(
+            gambar_url, max_images=max_images_needed,
+            name=f"img-dl-{worker_id}",
         )
 
     # Cache loading per market - paralel (ensure_form_options_cache handle
@@ -985,14 +996,18 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
     def _market_thread(entry):
         code = entry["code"]
         try:
+            # image_paths/image_urls/is_imgur = None sekarang (akan di-resolve
+            # oleh adapter via image_future tepat sebelum step upload). Pass
+            # raw_image_url untuk URL prefix di description.
             ok, line = _run_market(
                 code, sheet, baris_nomor, worker_id,
                 game_name=entry["game"], deskripsi=entry["deskripsi"],
                 title=title, harga=entry["harga"],
                 field_mapping=ai_results.get(code, {}),
-                image_paths=downloaded_paths,
-                image_urls=image_urls_all,
-                raw_image_url=gambar_url, is_imgur=is_imgur,
+                image_paths=None,
+                image_urls=None,
+                raw_image_url=gambar_url, is_imgur=False,
+                image_future=image_future,
             )
             with status_lock:
                 status_lines[code] = line
@@ -1064,7 +1079,13 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
     except Exception as e:
         add_log(f"Gagal tulis hasil akhir: {e}")
 
-    cleanup_temp_images(downloaded_paths)
+    # Cleanup temp gambar - ambil paths dari future kalau ready, else skip.
+    if image_future is not None and image_future.done():
+        try:
+            paths_to_clean, _, _ = image_future.result(timeout=1)
+            cleanup_temp_images(paths_to_clean or [])
+        except Exception:
+            pass
     _clear_worker()
 
 

@@ -31,7 +31,6 @@ from create._shared import (
     xpath_literal as _xpath_literal,
     smart_wait as _base_smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -481,11 +480,8 @@ def _fill_tinymce(page, body_text):
 
 
 def create_listing(game_name, title, deskripsi, harga, field_mapping, image_paths,
-                   raw_image_url=None, login_name=None, image_future=None):
-    """Full PA create flow. Return (ok, err, uploaded_count).
-
-    `image_future` (optional): async download future. Di-resolve tepat sebelum
-    step upload."""
+                   raw_image_url=None, login_name=None):
+    """Full PA create flow. Return (ok, err, uploaded_count)."""
     uploaded = 0
     with sync_playwright() as p:
         page = None
@@ -683,17 +679,6 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                 smart_wait(page, 400, 700)
             except Exception as e:
                 return False, f"Title: {str(e)[:100]}", uploaded
-
-            # Resolve image future (async download pattern). Block sampai
-            # download selesai. Fallback ke image_paths kwarg kalau None.
-            if image_future is not None:
-                try:
-                    resolved_paths, _, _ = resolve_image_future(image_future)
-                    image_paths = resolved_paths
-                except RuntimeError as e:
-                    return False, str(e), uploaded
-            if not image_paths:
-                return False, "Gambar tidak bisa di download", uploaded
 
             # Step 11: Upload Cover Image (1 gambar)
             to_upload = (image_paths or [])[:PA_MAX_IMAGES]
@@ -900,7 +885,7 @@ def cache_looks_bogus(cache_dict):
 
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
-        raw_image_url=None, is_imgur=False, image_future=None):
+        raw_image_url=None, is_imgur=False):
     """Adapter entry. Baca kolom B (login_name) dari sheet utk diisi ke
     loginName+retypeLoginName input di PA. Return (ok, k_line)."""
     _worker_local.worker_id = f"{worker_id}-PA"
@@ -915,11 +900,9 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
 
     ok, err, uploaded = create_listing(
         game_name, title, description or "", harga,
-        field_mapping or {},
-        (image_paths or [])[:PA_MAX_IMAGES] if image_paths else None,
+        field_mapping or {}, (image_paths or [])[:PA_MAX_IMAGES],
         raw_image_url=raw_image_url,
         login_name=login_name,
-        image_future=image_future,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:

@@ -35,7 +35,6 @@ from create._shared import (
     xpath_literal as _xpath_literal,
     smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -156,9 +155,9 @@ def _click_next_step1(page):
     # Navigate ke step 2 - beri waktu untuk URL change + render form.
     try:
         page.wait_for_url(IGV_STEP2_URL_PATTERN, timeout=15000)
-        add_log("[IGV] Navigasi ke Step 2 sukses")
+        add_log("[IGV] ✅ Navigasi ke Step 2 sukses")
     except Exception:
-        add_log(f"[IGV] URL belum pindah ke step=2 (current: {page.url})")
+        add_log(f"[IGV] ⚠️ URL belum pindah ke step=2 (current: {page.url})")
     smart_wait(page, 1500, 2500)
 
 
@@ -298,9 +297,9 @@ def _click_next_step2(page):
     btn.click()
     try:
         page.wait_for_url(IGV_STEP3_URL_PATTERN, timeout=15000)
-        add_log("[IGV] Navigasi ke Step 3 sukses")
+        add_log("[IGV] ✅ Navigasi ke Step 3 sukses")
     except Exception:
-        add_log(f"[IGV] URL belum pindah ke step=3 (current: {page.url})")
+        add_log(f"[IGV] ⚠️ URL belum pindah ke step=3 (current: {page.url})")
     smart_wait(page, 1500, 2500)
 
 
@@ -425,7 +424,7 @@ def _click_post_product(page):
     # Verify: redirect OR Element-Plus success message
     try:
         page.wait_for_url(IGV_SUCCESS_URL_PATTERN, timeout=20000)
-        add_log("[IGV] Redirect ke /product/my - post sukses")
+        add_log("[IGV] ✅ Redirect ke /product/my - post sukses")
         return True, None
     except Exception:
         pass
@@ -434,7 +433,7 @@ def _click_post_product(page):
     try:
         toast = page.locator(".el-message--success, .el-notification--success").first
         toast.wait_for(state="visible", timeout=8000)
-        add_log("[IGV] Toast success IGV muncul - post sukses")
+        add_log("[IGV] ✅ Toast success IGV muncul - post sukses")
         return True, None
     except Exception:
         pass
@@ -664,12 +663,12 @@ def cache_looks_bogus(cache):
 
 
 def create_listing(game_name, title, deskripsi, harga, field_mapping, image_paths,
-                   raw_image_url=None, image_future=None):
+                   raw_image_url=None):
     """Full IGV create flow. Return (ok, err, uploaded_count).
 
-    `image_future` (optional): kalau disediain, gambar di-resolve via future
-    tepat sebelum step upload (async download pattern). Fallback ke
-    `image_paths` kwarg kalau future None (legacy)."""
+    STAGED: sekarang cuma implement Step 1 (pick game + category + Next).
+    Return False dengan message eksplisit supaya bot ndak mark done.
+    """
     uploaded = 0
     cdp_url = _get_chrome_cdp_url()
     if not cdp_url:
@@ -704,19 +703,8 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             # Step 2b: fill Title
             _fill_title(page, title)
 
-            # Resolve image future (block sampai download selesai kalau pakai
-            # async flow). Fallback ke image_paths kwarg lama kalau future None.
-            if image_future is not None:
-                try:
-                    resolved_paths, _, _ = resolve_image_future(image_future)
-                    image_paths = resolved_paths
-                except RuntimeError as e:
-                    return False, str(e), uploaded
-            if not image_paths:
-                return False, "Gambar tidak bisa di download", uploaded
-
             # Step 2c: upload gambar (max 5)
-            uploaded = _upload_product_images(page, image_paths)
+            uploaded = _upload_product_images(page, image_paths or [])
 
             # Step 2d: fill Product Description (Jodit editor)
             _fill_description_jodit(page, deskripsi, raw_image_url)
@@ -760,15 +748,14 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
 
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
-        raw_image_url=None, is_imgur=False, image_future=None):
+        raw_image_url=None, is_imgur=False):
     """Adapter entry dipanggil orchestrator. Return (ok, k_line)."""
     _worker_local.worker_id = f"{worker_id}-IGV"
 
     ok, err, uploaded = create_listing(
         game_name, title, description or "", harga,
-        field_mapping or {}, (image_paths or [])[:MAX_IMAGES] if image_paths else None,
+        field_mapping or {}, (image_paths or [])[:MAX_IMAGES],
         raw_image_url=raw_image_url,
-        image_future=image_future,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:

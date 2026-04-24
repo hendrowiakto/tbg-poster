@@ -28,7 +28,6 @@ from create._shared import (
     xpath_literal as _xpath_literal,
     smart_wait as _base_smart_wait,
     get_or_create_context,
-    resolve_image_future,
 )
 
 
@@ -332,49 +331,13 @@ def _click_next_step(page):
 
 # ===================== DROPDOWN HELPERS =====================
 def _open_u7_select(page, trigger_locator):
-    """Buka u7-select dropdown dengan multi-strategy click.
-    Layout baru: div.u7-select (tabindex=0) > div.u7-placeholder (click handler
-    di child Vue). Direct click outer kadang ndak trigger dropdown - fallback
-    click inner placeholder atau focus+Enter."""
-    def _opts_visible():
-        try:
-            return page.locator(
-                "ul.u7-list:visible, li.el-select-dropdown__item:visible"
-            ).count() > 0
-        except Exception:
-            return False
-
-    # Strategy 1: click outer (old behavior)
+    """Buka u7-select dropdown. Return True kalau opened."""
     try:
         trigger_locator.click()
-        smart_wait(page, 400, 700)
-        if _opts_visible():
-            return True
+        smart_wait(page, 500, 900)
+        return True
     except Exception:
-        pass
-
-    # Strategy 2: click inner .u7-placeholder (layout baru)
-    try:
-        inner = trigger_locator.locator(".u7-placeholder").first
-        if inner.count() > 0:
-            inner.click()
-            smart_wait(page, 400, 700)
-            if _opts_visible():
-                return True
-    except Exception:
-        pass
-
-    # Strategy 3: focus + Enter (tabindex=0 keyboard activation)
-    try:
-        trigger_locator.focus()
-        page.keyboard.press("Enter")
-        smart_wait(page, 400, 700)
-        if _opts_visible():
-            return True
-    except Exception:
-        pass
-
-    return False
+        return False
 
 
 def _collect_u7_options(page):
@@ -674,11 +637,8 @@ def _scrape_form_options_page(page):
 
 # ===================== CREATE LISTING FULL FLOW =====================
 def create_listing(game_name, title, deskripsi, harga, field_mapping, image_paths,
-                   raw_image_url=None, image_future=None):
-    """Full U7 create flow. Return (ok, err, uploaded_count).
-
-    `image_future` (optional): async download future. Di-resolve tepat sebelum
-    step upload."""
+                   raw_image_url=None):
+    """Full U7 create flow. Return (ok, err, uploaded_count)."""
     uploaded = 0
     with sync_playwright() as p:
         page = None
@@ -706,17 +666,6 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
 
             # Step 5: Product Name (title dari J)
             _fill_product_name(page, title)
-
-            # Resolve image future (async download pattern). Block sampai
-            # download selesai. Fallback ke image_paths kwarg kalau None.
-            if image_future is not None:
-                try:
-                    resolved_paths, _, _ = resolve_image_future(image_future)
-                    image_paths = resolved_paths
-                except RuntimeError as e:
-                    return False, str(e), uploaded
-            if not image_paths:
-                return False, "Gambar tidak bisa di download", uploaded
 
             # Step 6-8: Upload images one-by-one dgn confirm popup, max 5.
             # Abort-after-first-fail: kalau upload pertama timeout/exception,
@@ -754,21 +703,16 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                         continue
                     preferred = (field_mapping or {}).get(label)
                     trigger = page.locator("div.u7-select").nth(idx)
-                    # Multi-strategy open (click outer / click placeholder / focus+Enter)
-                    if not _open_u7_select(page, trigger):
-                        add_log(f"[U7] Dropdown '{label}': gagal buka, skip")
-                        continue
+                    trigger.click()
+                    smart_wait(page, 400, 700)
                     opts = _collect_u7_options(page)
                     if not opts:
-                        add_log(f"[U7] Dropdown '{label}': opsi tidak terdeteksi, skip")
                         _close_u7_dropdown(page)
                         continue
                     pick = preferred if preferred and preferred in opts else opts[0]
                     src = "AI" if preferred and preferred == pick else "first-option"
                     add_log(f"[U7] Isi {label}: {pick} ({src})")
-                    if not _click_option_by_text(page, pick):
-                        add_log(f"[U7] Klik opsi '{pick}' gagal untuk '{label}'")
-                        _close_u7_dropdown(page)
+                    _click_option_by_text(page, pick)
                     smart_wait(page, 300, 500)
             except Exception as e:
                 add_log(f"[U7] Gagal fill dynamic dropdown: {str(e)[:80]}")
@@ -949,16 +893,14 @@ def cache_looks_bogus(cache_dict):
 
 def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
         field_mapping, image_paths=None, image_urls=None,
-        raw_image_url=None, is_imgur=False, image_future=None):
+        raw_image_url=None, is_imgur=False):
     """Adapter entry dipanggil orchestrator. Return (ok, k_line)."""
     _worker_local.worker_id = f"{worker_id}-U7"
 
     ok, err, uploaded = create_listing(
         game_name, title, description or "", harga,
-        field_mapping or {},
-        (image_paths or [])[:U7_MAX_IMAGES] if image_paths else None,
+        field_mapping or {}, (image_paths or [])[:U7_MAX_IMAGES],
         raw_image_url=raw_image_url,
-        image_future=image_future,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
