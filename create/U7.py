@@ -845,6 +845,13 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             if price_clean.count(".") > 1:
                 parts = price_clean.split(".")
                 price_clean = "".join(parts[:-1]) + "." + parts[-1]
+            # U7 minimum $1.99 - override kalau harga sumber lebih rendah
+            try:
+                if float(price_clean) < 1.99:
+                    add_log(f"[U7] Harga sumber ${price_clean} < $1.99 minimum, override ke $1.99")
+                    price_clean = "1.99"
+            except (ValueError, TypeError):
+                pass
             add_log(f"[U7] Isi Selling Price: ${price_clean}")
             try:
                 price_input = page.locator(

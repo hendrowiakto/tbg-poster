@@ -1,7 +1,10 @@
 @echo off
 setlocal EnableDelayedExpansion
-chcp 65001 >nul
 cd /d "%~dp0"
+
+REM Disable QuickEdit mode untuk window ini (cegah user stuck kalau ndak sengaja klik).
+REM Ndak ubah setting global, cuma current session.
+powershell -NoProfile -Command "$sig='[DllImport(\"kernel32.dll\")] public static extern IntPtr GetStdHandle(int h); [DllImport(\"kernel32.dll\")] public static extern bool GetConsoleMode(IntPtr h, out uint m); [DllImport(\"kernel32.dll\")] public static extern bool SetConsoleMode(IntPtr h, uint m);'; $t=Add-Type -MemberDefinition $sig -Name 'C' -Namespace 'W' -PassThru; $h=$t::GetStdHandle(-10); $m=0; $null=$t::GetConsoleMode($h,[ref]$m); $null=$t::SetConsoleMode($h, $m -band -bnot 0x40 -bor 0x80)" 2>nul
 
 echo ============================================================
 echo  Bot Manage Listing - AUTO UPDATE

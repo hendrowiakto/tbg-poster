@@ -415,6 +415,13 @@ def _fill_price(page, harga):
     if not price_clean:
         add_log(f"[IGV] Harga '{raw}' ke-strip jadi kosong, skip")
         return
+    # IGV minimum $5 - override kalau harga sumber lebih rendah
+    try:
+        if float(price_clean) < 5:
+            add_log(f"[IGV] Harga sumber ${price_clean} < $5 minimum, override ke $5")
+            price_clean = "5"
+    except (ValueError, TypeError):
+        pass
     add_log(f"[IGV] Fill Price (USD): {price_clean} (raw='{raw}')")
     price_input = page.locator("input.el-input__inner[type='number']").first
     try:

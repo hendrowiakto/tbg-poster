@@ -858,6 +858,13 @@ def create_listing(game_name_g2g, title, deskripsi, harga, field_mapping, image_
 
             # 5. Price - strip ke pure digits (Rp, titik, koma dibuang)
             price_clean = re.sub(r'[^0-9]', '', str(harga))
+            # G2G minimum 40000 IDR - override kalau harga sumber lebih rendah
+            try:
+                if price_clean and int(price_clean) < 40000:
+                    add_log(f"[G2G] Harga sumber Rp{price_clean} < Rp40000 minimum, override ke Rp40000")
+                    price_clean = "40000"
+            except (ValueError, TypeError):
+                pass
             add_log(f"[G2G] Isi Price: {price_clean}")
             price_filled = False
             for sel in [

@@ -299,6 +299,13 @@ def _fill_price(page, harga):
     if price_clean.count(".") > 1:
         parts = price_clean.split(".")
         price_clean = "".join(parts[:-1]) + "." + parts[-1]
+    # GB minimum $1.99 - override kalau harga sumber lebih rendah
+    try:
+        if float(price_clean) < 1.99:
+            add_log(f"[GB] Harga sumber ${price_clean} < $1.99 minimum, override ke $1.99")
+            price_clean = "1.99"
+    except (ValueError, TypeError):
+        pass
     add_log(f"[GB] Isi Price: ${price_clean}")
     # Scope: input sibling dari select[aria-label='Currency']
     for sel in [
