@@ -576,7 +576,7 @@ function Toast({ toasts, onDismiss }) {
     <div style={{ position:'fixed', top:64, right:16, zIndex:9999, display:'flex', flexDirection:'column', gap:8, pointerEvents:'none' }}>
       {toasts.map(t => (
         <div key={t.id} style={{
-          display:'flex', alignItems:'center', gap:10,
+          display:'flex', alignItems:'flex-start', gap:10,
           background:'var(--surface2)', border:`1px solid ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}40`,
           borderLeft:`3px solid ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}`,
           borderRadius:8, padding:'10px 14px', minWidth:312, maxWidth:408,
@@ -584,24 +584,31 @@ function Toast({ toasts, onDismiss }) {
           animation:'toastIn .25s ease',
           pointerEvents:'all',
         }}>
-          <span style={{ position:'relative', display:'inline-flex', width:8, height:8, flexShrink:0 }}>
-            <span style={{
-              display:'inline-block', width:8, height:8, borderRadius:'50%',
-              background: t.type==='ok' ? 'var(--success)' : 'var(--danger)',
-              boxShadow:`0 0 6px ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}`,
-              position:'relative', zIndex:1,
-            }} />
-            <span style={{
-              position:'absolute', inset:0, borderRadius:'50%',
-              background: t.type==='ok' ? 'var(--success)' : 'var(--danger)',
-              animation: 'ping 1.6s cubic-bezier(0,0,0.2,1) infinite',
-            }} />
-          </span>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:11, fontWeight:600, color: t.type==='ok' ? 'var(--success)' : 'var(--danger)', marginBottom:2 }}>
-              {t.type==='ok' ? '✓ Sukses' : '✕ Error'}
+            <div style={{
+              display:'inline-flex', alignItems:'center', gap:5,
+              fontSize:10, fontWeight:600, letterSpacing:'0.04em',
+              color: t.type==='ok' ? 'var(--success)' : 'var(--danger)',
+              background: t.type==='ok' ? 'var(--success-dim)' : 'var(--danger-dim)',
+              border: `1px solid ${t.type==='ok' ? 'var(--success)' : 'var(--danger)'}30`,
+              borderRadius: 99, padding: '2px 8px 2px 6px',
+              marginBottom: 4,
+              animation: 'toastIcon .35s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            }}>
+              {t.type==='ok' ? (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              ) : (
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              )}
+              {t.type==='ok' ? 'SUKSES' : 'ERROR'}
             </div>
-            <div style={{ fontSize:11, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.msg}</div>
+            <div style={{ fontSize:12, color:'#b5bacb', lineHeight:1.45, wordBreak:'break-word' }}>
+              {t.msg}
+            </div>
           </div>
           <button onClick={() => onDismiss(t.id)} style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:14, padding:'0 2px', flexShrink:0 }}>×</button>
         </div>
@@ -694,8 +701,8 @@ function App() {
           else if (lvl === 'DELETE') {
             const okMatch = clean.match(/^\[([A-Z0-9]+)\].*berhasil (dihapus|di-cancel|di-offline)/);
             const failMatch = clean.match(/^\[([A-Z0-9]+)\]\s*Gagal:\s*(.+)$/);
-            if (okMatch) { addToast('ok', `✅ ${okMatch[1]} berhasil ${okMatch[2]}`); toasted = true; }
-            else if (failMatch) { addToast('err', `❌ ${failMatch[1]}: ${failMatch[2]}`); toasted = true; }
+            if (okMatch) { addToast('ok', `✅ ${clean}`); toasted = true; }
+            else if (failMatch) { addToast('err', `❌ ${clean}`); toasted = true; }
           }
           if (!toasted && lvl === 'ERR') addToast('err', clean);
         }
@@ -876,6 +883,11 @@ function App() {
         @keyframes actPulse {
           0%, 100% { transform: scale(0.7); opacity: 0.7; }
           50%      { transform: scale(1.15); opacity: 1; }
+        }
+        @keyframes toastIcon {
+          0%   { transform: scale(0); }
+          60%  { transform: scale(1.15); }
+          100% { transform: scale(1); }
         }
         .tab-btn { background:none; border:none; cursor:pointer; font-family:inherit; }
         .tab-btn:focus { outline: none; }

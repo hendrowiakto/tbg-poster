@@ -33,16 +33,18 @@ Tambah market baru = tambah 1 file `create/NEW.py` yang implement contract.
 
 `create/` berisi 8 adapter market saat ini:
 
-| File | Market | MAX_IMAGES | HARGA_COL | Pattern upload |
-|------|--------|-----------|-----------|----------------|
-| [GM.py](GM.py) | GameMarket | 20 | H (8) | Bulk, retry 3x, verify preview |
-| [G2G.py](G2G.py) | G2G | 10 | G (7) | URL paste (imgur only) |
-| [PA.py](PA.py) | PlayerAuctions | 1 | H (8) | 1 file cover image |
-| [U7.py](U7.py) | U7Buy | 3 | H (8) | One-by-one, confirm popup |
-| [ZEUS.py](ZEUS.py) | ZeusX | 10 | H (8) | One-per-slot |
-| [GB.py](GB.py) | GameBoost | 20 | H (8) | Bulk |
-| [ELDO.py](ELDO.py) | Eldorado | 5 | H (8) | Bulk max 5 |
-| [IGV.py](IGV.py) | iMetaStore | 5 | H (8) | Bulk + polling `is-success` |
+| File | Market | MAX_IMAGES | HARGA_COL | Min price | Pattern upload |
+|------|--------|-----------|-----------|-----------|----------------|
+| [GM.py](GM.py) | GameMarket | 20 | H (USD 8) | $1.99 | Bulk, retry 3x, verify preview |
+| [G2G.py](G2G.py) | G2G | 10 | G (IDR 7) | Rp 40000 | URL paste (imgur only) |
+| [PA.py](PA.py) | PlayerAuctions | 1 | H (USD 8) | $5 | 1 file cover image |
+| [U7.py](U7.py) | U7Buy | 3 | H (USD 8) | $1.99 | One-by-one, confirm popup |
+| [ZEUS.py](ZEUS.py) | ZeusX | 10 | H (USD 8) | $1.99 | One-per-slot |
+| [GB.py](GB.py) | GameBoost | 20 | H (USD 8) | $1.99 | Bulk |
+| [ELDO.py](ELDO.py) | Eldorado | 5 | H (USD 8) | $1.99 | Bulk max 5 |
+| [IGV.py](IGV.py) | iMetaStore | 5 | H (USD 8) | $5 | Bulk + polling `is-success` |
+
+**Min price override**: kalau harga sumber dari sheet < min, adapter otomatis fill min (sheet **tetap nilai asli**, cuma form yang di-override). Contoh: harga sheet $1.50, min GM $1.99 → form di-fill `1.99`.
 
 Plus:
 
@@ -104,9 +106,15 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
     """Dipanggil orchestrator. Thin wrapper di atas create_listing.
     Return (ok: bool, k_line: str).
 
-    k_line format:
-      Sukses: "✅ {CODE} | {N} images uploaded | DD MMM, YY | HH:MM [| listing_url]"
-      Gagal:  "❌ {CODE} | {error_message[:80]}"
+    k_line format (semua market code di-bracket dgn []):
+      Sukses: "✅ [{CODE}] | {N} images uploaded | DD MMM, YY | HH:MM [| listing_url]"
+      Gagal:  "❌ [{CODE}] | {error_message[:80]}"
+
+    NOTE: orchestrator (bot_create.py) saat tulis K column pakai `k_line` ini
+    apa adanya. TAPI untuk toast log (UI), orchestrator ganti format ke ringkas
+    untuk sukses: `"✅ [{CODE}] {kode_listing} berhasil dipost {N} images uploaded!"`
+    (extract count dari k_line). Ini sengaja — biar K column punya detail
+    timestamp+URL sementara toast user lebih clean.
     """
 ```
 
@@ -249,7 +257,7 @@ def create_listing(..., image_future=None):
 | Upload | Bulk `set_input_files` + retry 3x + verify blob preview |
 | Form fields | Dynamic dropdown (game-specific) |
 | CACHE_SENTINEL | `"[tidak ditemukan options]"` |
-| K line sukses | `✅ GM | N images uploaded | ts | listing_url` |
+| K line sukses | `✅ [GM] | N images uploaded | ts | listing_url` |
 
 **Flow**:
 1. Goto URL + inject worker tab title
@@ -279,7 +287,7 @@ def create_listing(..., image_future=None):
 | Image source | HANYA imgur (kalau `is_imgur=True`) |
 | Form fields | "Silakan Pilih" buttons, Quasar q-menu popper |
 | CACHE_SENTINEL | `NO_OPTIONS_SENTINEL_G2G` = `"[tidak ditemukan options G2G]"` |
-| K line sukses | `✅ G2G | N images uploaded | ts` atau `✅ G2G | image URL in description | ts` |
+| K line sukses | `✅ [G2G] | N images uploaded | ts` atau `✅ [G2G] | image URL in description | ts` |
 
 **Flow**:
 1. Goto URL + inject worker tab title
@@ -335,6 +343,7 @@ def create_listing(..., image_future=None):
 - Anti-spam throttle: `_PA_SLOW_MULT = 1.75x` + 0-50% jitter. PA sering kick session kalau post terlalu cepat
 - Login name + retype baca dari kolom B sheet (via `run(sheet.cell(baris_nomor, 2).value)`)
 - Description pakai "Full Screenshot Detail: {url-stripped-scheme}" prefix line
+- **Early error detection** — saat polling redirect setelah Submit, cek paralel `p.text-danger.p-t-1`, `.ant-message-error`, `.ant-notification-notice-error`. Kalau ada inline error (misal "Provided login name already exists") → fail langsung tanpa nunggu 1 menit timeout
 
 ### U7 — U7Buy
 
@@ -372,10 +381,15 @@ def create_listing(..., image_future=None):
 13. Submit → wait redirect
 
 **Quirks**:
-- **Max images 3** — U7 website sering error saat upload > 3 (policy change / bandwidth)
-- **Abort-after-first-fail** — kalau upload 1 gagal, langsung return, cegah waste 5 × 30s = 2.5 menit
+- **Max images 3** (sebelumnya 5) — U7 website sering error saat upload > 3 (policy change / bandwidth)
+- **Min price $1.99** — auto-override kalau harga < $1.99
+- **Abort-after-first-fail** — kalau upload 1 gagal, langsung return, cegah waste 3 × 30s
 - **u7-select custom**: multi-strategy click karena tabindex=0 outer + click handler di inner placeholder
-- **Hardening intermittent**: kadang click ndak trigger karena Vue state transient → retry 3 round
+- **Hardening intermittent**: kadang click ndak trigger karena Vue state transient → retry 3 round dengan 4 strategy:
+  1. Click outer `div.u7-select`
+  2. Click inner `.u7-placeholder`
+  3. Focus + Enter (keyboard activation)
+  4. JS-level `el.click()` + `dispatchEvent(mousedown/mouseup/click)`
 
 ### ZEUS — ZeusX
 
@@ -503,13 +517,16 @@ def create_listing(..., image_future=None):
   6. **Delay 1 detik** sebelum tab close (settle)
 
 **Quirks**:
+- **Min price $5** — IGV minimum policy, auto-override kalau harga < $5
 - **Mix select + input di Game Details** — IGV adapter call Gemini sendiri (bypass shared ai_map_fields_multi yang cuma handle flat select-only format)
 - **Case-insensitive exact match** game name — kadang sheet `"Arena breakout"`, IGV `"Arena Breakout"` / `"Arena Breakout Infinite"` → match lowercase, ambil yg exact (ndak cocok partial)
 - **Keyboard type filter** untuk brand dropdown — list panjang (1700+ game, virtual scroll) → type untuk auto-filter
 - **Next button `.last`** — Step 2→3 ada Previous + Next, keduanya primary class → pilih yg rightmost
 - **Jodit editor paste via JS** — typing lambat bikin tulisan terpotong saat Next click race. JS set innerHTML + fire input event = instant
-- **Upload polling `.is-success`** — ndak cuma count item muncul, tapi wait sampai status sukses (Element-Plus state)
-- **Login name kolom B** — sama pattern dengan PA, dipakai di field pertama Delivery method Step 3
+- **Upload polling `.is-success`** — ndak cuma count item muncul, tapi wait sampai status sukses (Element-Plus state) — settle delay 1s setelah upload selesai sebelum lanjut Next
+- **Login name kolom B** — dipakai di **field pertama** Delivery method Step 3. Field ke-2+ pakai `IGV_DELIVERY_FIX_TEXT = "PleaseContactSeller@IGVChat.ForDetails"`
+- **Settle delay 1s** setelah Post product redirect sukses sebelum tab close (biar IGV server confirmed receive)
+- **Internal log tanpa emoji** — `[IGV] Navigasi ke Step 2 sukses` (bukan `✅ Navigasi`) supaya ndak trigger toast UI di tiap progress step (toast hanya fire pada K line final `✅ IGV | ...`)
 
 ## Cara menambah market baru
 
@@ -717,12 +734,18 @@ Checklist:
 
 ## Changelog adapter
 
-- **IGV** — added v1.11.0 (full flow Step 1-3, Jodit paste, case-insensitive game match)
-- **U7** — max images 5→3 (v1.11.x), multi-strategy dropdown open, abort-after-first-fail upload
-- **GM** — count fix async (v1.11.x)
-- **G2G** — close dropdown 4-stage fallback (v1.11.x)
-- **PA** — min price $5 override (v1.10.x), delete timeout 60s→30s (v1.11.x)
+- **IGV** — added v1.11.0 (full flow Step 1-3, Jodit paste, case-insensitive game match), min $5 override, login_name kolom B di field pertama Delivery method (sisa fix text `PleaseContactSeller@IGVChat.ForDetails`), settle delay 1s post-redirect, internal log tanpa emoji (cegah toast spam)
+- **U7** — max images 5→3 (v1.11.x), multi-strategy dropdown open (4 strategy × 3 round), abort-after-first-fail upload, min $1.99 override
+- **GM** — count fix async (v1.11.x), min $1.99 override
+- **G2G** — close dropdown 4-stage fallback (v1.11.x), min Rp 40000 override
+- **PA** — min price $5 override (v1.10.x), delete timeout 60s→30s (v1.11.x), early error detection (`p.text-danger` polling paralel — fail < 1s tanpa nunggu redirect timeout)
+- **ELDO** — min $1.99 override
+- **ZEUS** — min $1.99 override
+- **GB** — min $1.99 override
 - **Async image download** — all 8 adapters (v1.11.x)
+- **Min price override** — semua adapter (v1.11.x), sheet tetap nilai asli, override hanya saat fill form
+- **K line format `[CODE]` brackets** — semua adapter pakai `✅ [GM] | ...` / `❌ [GM] | ...` di run() return (v1.11.x)
+- **Toast format ringkas (CREATE)** — orchestrator emit toast sukses ringkas `✅ [GM] ABC123 berhasil dipost 5 images uploaded!` (extract count dari k_line). K column tetap full format dengan timestamp + listing URL
 
 ---
 

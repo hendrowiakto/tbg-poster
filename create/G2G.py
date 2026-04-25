@@ -1164,6 +1164,6 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
         if added > 0:
-            return True, f"✅ G2G | {added} images uploaded | {ts}"
-        return True, f"✅ G2G | image URL in description | {ts}"
-    return False, f"❌ G2G | {(err or 'unknown')[:80]}"
+            return True, f"✅ [G2G] | {added} images uploaded | {ts}"
+        return True, f"✅ [G2G] | image URL in description | {ts}"
+    return False, f"❌ [G2G] | {(err or 'unknown')[:80]}"

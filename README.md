@@ -121,6 +121,42 @@ Chrome profile tersimpan di folder `CHROME_USER_DATA_DIR` (default `C:\chrome-de
 
 Toggle bisa di-OFF kalau mau skip sementara (misal lagi test create saja).
 
+### Indikator status per bot
+
+Tiap card bot punya visual indikator di samping label:
+
+| State | Indikator | Timer |
+|-------|-----------|-------|
+| **Running** | Pulsing dot solid (warna bot, breathing 1.4s) | Format `MM:SS` / `HH:MM:SS` di badge berwarna |
+| **Standby** | Ping radar dot (warna bot, animasi pulse) | Format kalem `5s`, `45s`, `1m`, `2m 10s`, `1h`, `1h 20m` di samping kanan teks "Standby" |
+| **Stopped** | (kosong, ndak ada indikator) | — |
+
+Standby timer reset saat: toggle ON dari OFF, atau transisi running → standby (cycle selesai). Berhenti saat: toggle OFF atau saat running.
+
+### Toast notification
+
+Toast muncul di pojok kanan atas saat ada event sukses/gagal. Auto-dismiss setelah ~5 detik (klik × untuk close manual).
+
+| Element | Style |
+|---------|-------|
+| Border kiri 3px | Hijau (`--success`) untuk sukses, merah (`--danger`) untuk error |
+| Pill badge atas | `SUKSES` (centang icon) atau `ERROR` (X icon), animasi bouncy scale-in |
+| Message text | Color `#b5bacb` (medium dim, antara teks utama dan log color), 12px |
+| Close button | × di kanan |
+
+Toast format konten **per bot**:
+
+| Bot | Sukses | Gagal |
+|-----|--------|-------|
+| **DELETE** | `✅ [GM] Listing AAA101 berhasil dihapus!` (full log line) | `❌ [GM] Gagal: <error>` (full log line) |
+| **CREATE** | `✅ [GM] ABC123 berhasil dipost 5 images uploaded!` (ringkas) | `❌ [GM] | <error>` (full line dari adapter) |
+| **DISKON** | `✅ [Worker 3] [GM] ABC123 berhasil diskon 6.99 > 5.99` (per market)<br>`Baris 51 selesai. AB: ✅ All Good | AC: 25/04/26 11:30` (summary) | `❌ [Worker 3] [GM] ABC123 tidak dapat diproses!` (per market)<br>`Baris 51 selesai. AB: ❌ Gagal Total | AC: ...` (summary) |
+
+**Catatan**: 
+- CREATE toast format ringkas ≠ K column format (K column tetap full dengan timestamp + listing URL)
+- DISKON per-market: 1 toast per market × N market aktif. Plus 1 summary toast di akhir cycle (kalau prefix mengandung ✅/❌ — `⚠️ Error Sebagian` ndak fire toast)
+- Worker prefix `[Worker N]` muncul di DISKON karena bot diskon multi-worker paralel
+
 ### Live Log
 
 Panel kanan tampilkan log real-time:
@@ -138,10 +174,24 @@ Admin push update ke GitHub. Untuk update bot di PC kantor:
 
 1. **Tutup** `Bot Manage Listing.exe` kalau lagi jalan
 2. **Double-click `update.bat`**
-3. Script auto-download EXE terbaru dari GitHub Releases, overwrite file lama
-4. Launch ulang bot
+3. Script tampilkan info versi terbaru + tanggal release dari GitHub API
+4. Auto-download EXE terbaru, overwrite file lama
+5. Launch ulang bot
 
-Waktu update: ~30 detik.
+Waktu update: ~30 detik. Output `update.bat`:
+
+```
+[1/3] Stop bot yang sedang jalan...
+[2/3] Download update dari GitHub...
+       Versi terbaru: v1.11.9
+       Last update  : 2026-04-26 03:43
+       Downloading EXE...
+[==================] 100%
+[3/3] Replace EXE dan launch...
+UPDATE SELESAI
+```
+
+**Catatan**: window cmd auto-disable QuickEdit mode — user ndak akan stuck kalau ndak sengaja klik di window (pause issue Windows CMD biasa).
 
 ## Troubleshooting user
 
@@ -609,6 +659,27 @@ Skenario (contoh `DISKON_MAX_WORKER=10`):
 
 → 4 tab di-scan, 10 row pertama di-dispatch (cap = MAX_WORKER).
 
+## Min price override per market
+
+Setiap market punya minimum harga yang diterima. Adapter auto-override **saat fill form** kalau harga sumber dari sheet < min. Sheet **tidak diubah**, cuma value yang di-fill ke marketplace.
+
+| Market | Min price | Currency | Kolom sheet |
+|--------|-----------|----------|-------------|
+| GM | $1.99 | USD | H |
+| G2G | Rp 40000 | IDR | G |
+| PA | $5 | USD | H |
+| ELDO | $1.99 | USD | H |
+| ZEUS | $1.99 | USD | H |
+| U7 | $1.99 | USD | H |
+| GB | $1.99 | USD | H |
+| IGV | $5 | USD | H |
+| FP | (TBD) | — | — |
+| Z2U | (TBD) | — | — |
+
+**Behavior**: harga sheet $1.50 → adapter detect < min GM ($1.99) → fill `1.99` ke form GM. Sheet kolom H tetap `1.50`.
+
+Detail per adapter di [create/README.md](create/README.md).
+
 ## Async image download
 
 Sebelum refactor (sync):
@@ -751,14 +822,16 @@ Lihat [Config reference](#config-reference).
 |--------|-------|------------|
 | `t.join(timeout=600)` [bot_create.py:1246](bot_create.py#L1246) | **10 menit** | Max total per row create |
 | `_ensure_form_options_cache` scrape timeout | 7 menit | Max per-market scrape form |
-| Gemini call (ai_map_fields_multi) | 2 menit | Via `call_with_timeout` |
-| Gemini call (IGV internal) | 30s | Via `call_with_timeout` |
+| Gemini call (ai_map_fields_multi) | 2 menit | Via `call_with_timeout`, 3x retry |
+| Gemini call (IGV internal) | 30s | Via `call_with_timeout`, single attempt |
 | Async image download (Future resolve) | 2 menit | `resolve_image_future(timeout=120)` |
-| Playwright default action | 60s | `context.set_default_timeout(60000)` (PA delete: 30s) |
-| Playwright default navigation | 60s | `context.set_default_navigation_timeout(60000)` (PA delete: 30s) |
+| Playwright default action | 60s | `context.set_default_timeout(60000)` |
+| Playwright default navigation | 60s | `context.set_default_navigation_timeout(60000)` |
+| **PA delete** action + nav | **30s** | Tighter karena PA delete flow 2-tahap (Cancel + Selected Offers) |
+| **PA create** submit error polling | 60s max | Loop 500ms cek `p.text-danger`/`.ant-message-error` paralel dengan URL redirect — early fail < 1s kalau inline error muncul |
 | Market action wait_for visible | 5-15s | Per helper |
-| U7 image upload per file | 30s | `_upload_one_image_u7(timeout_ms=30000)` |
-| IGV image upload total polling | 30s | `_upload_product_images(deadline=30)` |
+| **U7 image upload per file** | **30s** | `_upload_one_image_u7(timeout_ms=30000)` — abort-after-first-fail |
+| IGV image upload total polling | 30s | `_upload_product_images(deadline=30)` — wait `is-success` class + 1s settle |
 | Idle orchestrator backoff | 30s → 600s | Increment +10s tiap iterasi idle |
 
 ## Log lokasi
@@ -783,7 +856,7 @@ Format line:
 
 Detail commit lihat `git log` atau GitHub Releases.
 
-- **v1.11.x** — IGV adapter full flow, async image download, U7 dropdown hardening, timeout 10 menit per row, GM count fix
+- **v1.11.x (latest)** — IGV adapter full flow, async image download (8 adapter), U7 dropdown hardening + max 3 images, timeout 10 menit per row, GM count fix, **min price override semua market** (GM/G2G/ELDO/ZEUS/U7/GB/IGV — PA udah ada), **PA early error detection** (inline error polling paralel), **PA delete timeout 30s**, **G2G close dropdown 4-stage fallback**, IGV login_name kolom B di delivery, IGV settle delay 1s post-redirect, **update.bat enhancements** (version display + QuickEdit disable), **UI BotCard standby timer + running pulsing dot**, **Toast redesign** (pill badge SUKSES/ERROR + dimmed text color, no more dot pulse), **Toast format per-bot** (DELETE/DISKON full log, CREATE ringkas), **K line `[CODE]` brackets** semua adapter, **diskon per-market log** dengan emoji-aware [Worker N] prefix
 - **v1.10.x** — PA min price $5, "Full Screenshot Detail:" description prefix 6 market, U7 upload abort-after-first-fail
 - **v1.9.x** — Top-N=1 prescan + cumulative budget diskon, bottom-up row scan, duration di log cycle
 - **v1.8.x** — Cycle sequential orchestrator, per-market adapter pluggable

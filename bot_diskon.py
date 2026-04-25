@@ -22,6 +22,7 @@ ctx (lihat shared.py). File ini hanya berisi:
 """
 
 import os
+import re
 import sys
 import time
 import threading
@@ -158,14 +159,26 @@ _worker_local = threading.local()  # thread-local untuk track worker_id di log
 
 # ===================== THIN WRAPPERS =====================
 def add_log(msg):
-    """Delegate ke ctx.logger. Prefix [Worker N] kalau di dalam worker thread."""
+    """Delegate ke ctx.logger. Prefix [Worker N] kalau di dalam worker thread.
+    Kalau msg dimulai emoji status (✅/❌/⚠️), [Worker N] disisipkan SETELAH
+    emoji - jadi format akhir 'emoji [Worker N] rest' (biar toast ndak bingung
+    posisi emoji di awal)."""
     worker_id = getattr(_worker_local, 'worker_id', None)
-    prefix = f"[Worker {worker_id}] " if worker_id else ""
+    if worker_id:
+        m = re.match(r'^(✅|❌|⚠️)\s+', msg or '')
+        if m:
+            emoji_part = m.group(0)
+            rest = msg[len(emoji_part):]
+            formatted = f"{emoji_part}[Worker {worker_id}] {rest}"
+        else:
+            formatted = f"[Worker {worker_id}] {msg}"
+    else:
+        formatted = msg
     if _ctx is not None:
-        _ctx.logger.log(BOT_NAME, f"{prefix}{msg}")
+        _ctx.logger.log(BOT_NAME, formatted)
     else:
         try:
-            print(f"[diskon] {prefix}{msg}")
+            print(f"[diskon] {formatted}")
         except Exception:
             pass
 
@@ -1413,8 +1426,11 @@ def _proses_produk_body(sheet, data, baris_index, worker_id=1):
                         }
             if berhasil:
                 hasil_per_market[platform] = ("✅", None, task["harga"], old_price)
+                old_p = old_price if old_price else "?"
+                add_log(f"✅ [{platform}] {kode_listing} berhasil diskon {old_p} > {task['harga']}")
             else:
                 hasil_per_market[platform] = ("❌", error, task["harga"], "")
+                add_log(f"❌ [{platform}] {kode_listing} tidak dapat diproses!")
                 # Kalau error khusus "Session expired" -> tandai DEAD supaya worker
                 # lain skip market ini sampai batch selesai. Error lain (timeout,
                 # element not found, dll) TIDAK trigger DEAD - hanya session expired.

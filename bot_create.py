@@ -1014,12 +1014,21 @@ def proses_baris_dual(sheet, row_dict, baris_nomor, sheet_config, worker_id=1):
                 if ok:
                     done_ok.add(code)
             update_stats(code, ok)
-            add_log(line)
+            # Toast log: sukses pakai format ringkas (✅ {CODE} {kode} berhasil
+            # dipost {N} images uploaded!), gagal pakai full line.
+            # K column tetap pakai full `line` (status_lines write di atas).
+            if ok:
+                count_match = re.search(r'\|\s*(\d+)\s*images?\s*uploaded', line)
+                img_count = count_match.group(1) if count_match else '?'
+                kode_listing = row_dict.get("kode", "?")
+                add_log(f"✅ [{code}] {kode_listing} berhasil dipost {img_count} images uploaded!")
+            else:
+                add_log(line)
         except Exception as e:
             err = str(e)[:100]
             add_log(f"[{code}] Crash: {err}")
             with status_lock:
-                status_lines[code] = f"❌ {code} | {err}"
+                status_lines[code] = f"❌ [{code}] | {err}"
             update_stats(code, False)
 
     threads = []

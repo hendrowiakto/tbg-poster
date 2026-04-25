@@ -935,8 +935,8 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
                 count = 0
         elif image_paths:
             count = len(image_paths)
-        base = f"✅ GM | {count} images uploaded | {ts}"
+        base = f"✅ [GM] | {count} images uploaded | {ts}"
         if listing_url:
             return True, f"{base} | {listing_url}"
         return True, base
-    return False, f"❌ GM | {(err or 'unknown')[:80]}"
+    return False, f"❌ [GM] | {(err or 'unknown')[:80]}"

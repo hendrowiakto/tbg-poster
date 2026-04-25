@@ -903,5 +903,5 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
     )
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
-        return True, f"✅ ZEUS | {uploaded} images uploaded | {ts}"
-    return False, f"❌ ZEUS | {(err or 'unknown')[:80]}"
+        return True, f"✅ [ZEUS] | {uploaded} images uploaded | {ts}"
+    return False, f"❌ [ZEUS] | {(err or 'unknown')[:80]}"
