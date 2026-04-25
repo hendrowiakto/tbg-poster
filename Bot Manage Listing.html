@@ -237,6 +237,44 @@ function BotCard({ label, icon, color, active, running, onToggle, status, progre
     return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
   };
 
+  // Standby timer (kalem, tampil di samping kanan kata "Standby")
+  const [standbyElapsed, setStandbyElapsed] = useState(0);
+  const standbyAnchorRef = useRef(Date.now());
+  const wasRunningRef = useRef(running);
+
+  // Reset anchor saat baru di-enable atau transisi running → standby
+  useEffect(() => {
+    if (active && !running) {
+      if (wasRunningRef.current || standbyAnchorRef.current === null) {
+        standbyAnchorRef.current = Date.now();
+        setStandbyElapsed(0);
+      }
+    }
+    wasRunningRef.current = running;
+  }, [active, running]);
+
+  // Tick per detik saat Standby
+  useEffect(() => {
+    if (!active || running) return;
+    const tick = () => setStandbyElapsed(Math.floor((Date.now() - standbyAnchorRef.current) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [active, running]);
+
+  const fmtStandby = (s) => {
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) {
+      const rs = s % 60;
+      return rs === 0 ? `${m}m` : `${m}m ${rs}s`;
+    }
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    if (rem === 0) return `${h}h`;
+    return `${h}h ${rem}m`;
+  };
+
   const [flash, setFlash] = useState(false);
   useEffect(() => {
     setFlash(true);
@@ -277,6 +315,9 @@ function BotCard({ label, icon, color, active, running, onToggle, status, progre
                 borderRadius:4, padding:'0 5px', lineHeight:'14px',
               }}>{taskCount}</span>
             )}
+            {running && (
+              <span className="act-pulse" style={{ background: c }} aria-hidden="true" />
+            )}
             {!running && !stopped && (
               <span style={{ position:'relative', display:'inline-flex', width:8, height:8 }}>
                 <span style={{
@@ -300,6 +341,14 @@ function BotCard({ label, icon, color, active, running, onToggle, status, progre
                 borderRadius:4, padding:'0 5px', fontWeight:500, letterSpacing:'0.04em',
                 lineHeight:'1', verticalAlign:'middle', display:'inline-flex', alignItems:'center', height:16,
               }}>{fmt(elapsed)}</span>
+            )}
+            {!running && !stopped && status === 'Standby' && (
+              <span style={{
+                fontSize:10, fontFamily:"'JetBrains Mono', monospace",
+                color:'var(--text3)', letterSpacing:'0.04em',
+                lineHeight:'1', verticalAlign:'middle', display:'inline-flex', alignItems:'center', height:16,
+                opacity: 0.75,
+              }}>{fmtStandby(standbyElapsed)}</span>
             )}
           </div>
         </div>
@@ -816,6 +865,17 @@ function App() {
         @keyframes countUp {
           from { transform: translateY(6px); opacity:0; }
           to   { transform: translateY(0); opacity:1; }
+        }
+        .act-pulse {
+          display: inline-block;
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          animation: actPulse 1.4s ease-in-out infinite;
+        }
+        @keyframes actPulse {
+          0%, 100% { transform: scale(0.7); opacity: 0.7; }
+          50%      { transform: scale(1.15); opacity: 1; }
         }
         .tab-btn { background:none; border:none; cursor:pointer; font-family:inherit; }
         .tab-btn:focus { outline: none; }
