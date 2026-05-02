@@ -592,30 +592,6 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
             desc_input.fill(deskripsi)
             smart_wait(page, 500, 1000)
 
-            # 6. Duration = 90 days (radix radio button)
-            add_log("[GM] Pilih Duration: 90 days")
-            try:
-                duration_btn = None
-                for sel in [
-                    "button[role='radio'][value='90']",
-                    "xpath=//button[@role='radio' and @value='90']",
-                    "xpath=//label[normalize-space()='90 days']/preceding-sibling::button[@role='radio']",
-                    "xpath=//label[normalize-space()='90 days']/following-sibling::button[@role='radio']",
-                ]:
-                    try:
-                        loc = page.locator(sel).first
-                        loc.wait_for(state="visible", timeout=2500)
-                        duration_btn = loc
-                        break
-                    except Exception:
-                        continue
-                if duration_btn is None:
-                    raise Exception("tombol radio 90 days tidak ditemukan")
-                duration_btn.click()
-                smart_wait(page, 500, 1000)
-            except Exception as e:
-                add_log(f"[GM] Gagal pilih Duration 90: {str(e)[:80]}")
-
             # 7. Delivery = In-Chat (radix checkbox button)
             add_log("[GM] Pilih Delivery: In-Chat Delivery")
             try:

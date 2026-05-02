@@ -23,6 +23,7 @@ Poster2/
 .claude/
 .vscode/
 .idea/
+.playwright-mcp/
 
 # ===== Large binary asset (per-PC) =====
 boys_gaming.gif
@@ -33,3 +34,9 @@ dist/
 *.spec
 Bot Manage Listing.exe
 BotManageListing.exe
+BotManageListing.new.exe
+
+# ===== Archives (jangan commit, terlalu besar) =====
+*.rar
+*.zip
+*.7z

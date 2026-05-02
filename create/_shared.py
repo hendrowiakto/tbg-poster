@@ -13,6 +13,7 @@ Digunakan oleh:
 - create/GM.py, create/G2G.py dst. (future phase)
 """
 
+import io
 import os
 import re
 import json
@@ -21,8 +22,32 @@ import threading
 import concurrent.futures
 import requests
 from bs4 import BeautifulSoup
+from PIL import Image
 
 from shared import call_with_timeout, TimeoutHangError
+
+
+# ===================== IMAGE NORMALIZATION =====================
+JPEG_QUALITY = 90
+
+
+def _save_as_jpg(raw_bytes, out_path):
+    """Decode `raw_bytes` via Pillow lalu save sebagai JPEG di out_path.
+    Auto-handle: RGBA/LA (alpha) -> composite ke white BG; P (palette) -> RGB;
+    animated GIF/WebP -> ambil frame pertama.
+
+    Raise PIL.UnidentifiedImageError / OSError kalau bytes bukan image valid.
+    """
+    img = Image.open(io.BytesIO(raw_bytes))
+    if getattr(img, "is_animated", False):
+        img.seek(0)  # frame pertama
+    if img.mode in ("RGBA", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        img = bg
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+    img.save(out_path, "JPEG", quality=JPEG_QUALITY, optimize=True)
 
 
 # ===================== MULTI-WORKER THREAD LOCAL =====================
@@ -154,74 +179,70 @@ def obfuscate_image_url(url):
 
 # ===================== IMAGE SCRAPERS (PURE) =====================
 def scrape_imgur(album_url):
-    """Scrape Imgur album -> list direct image URL (i.imgur.com/xxx.jpg)."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    # /all memuat semua gambar di album via fragment page yg sama
-    base = album_url.rstrip("/")
-    candidate_urls = [base, base + "/all"] if not base.endswith("/all") else [base]
+    """Scrape Imgur album via public ajaxalbums JSON endpoint.
 
-    html_parts = []
-    for u in candidate_urls:
-        try:
-            r = requests.get(u, headers=headers, timeout=30)
-            if r.status_code == 200 and r.text:
-                html_parts.append(r.text)
-        except Exception:
-            continue
+    Endpoint: `imgur.com/ajaxalbums/getimages/{album_id}/hit.json?all=true`
+    Return: {data: {count, images: [{hash, ext, ...}]}} urut sesuai tampilan album.
+    Jauh lebih reliable dari HTML regex (sebelumnya false-match album_hash + ext
+    gambar berikutnya karena regex window 400 chars terlalu longgar).
+    """
+    m = re.search(r'/a/([a-zA-Z0-9_-]+)', album_url)
+    if not m:
+        return []
+    album_id = m.group(1)
 
-    if not html_parts:
+    api_url = f"https://imgur.com/ajaxalbums/getimages/{album_id}/hit.json?all=true"
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    try:
+        r = requests.get(api_url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+    except Exception:
         return []
 
-    html = "\n".join(html_parts)
-    urls = []
-
-    # Pola 1: JSON "hash":"XXX" ... "ext":".jpg" (Imgur embed postDataJSON)
-    for m in re.finditer(
-        r'"hash"\s*:\s*"([a-zA-Z0-9_-]+)"[\s\S]{0,400}?"ext"\s*:\s*"(\.[a-zA-Z0-9]+)"',
-        html,
-    ):
-        h, ext = m.group(1), m.group(2)
-        if ext.lower() in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
-            urls.append(f"https://i.imgur.com/{h}{ext}")
-
-    # Pola 2: plain URL (dengan atau tanpa scheme) di HTML
-    for m in re.finditer(
-        r'(?:https?:)?//i\.imgur\.com/([a-zA-Z0-9_-]{5,})\.(jpg|jpeg|png|gif|webp)',
-        html,
-        re.IGNORECASE,
-    ):
-        h, ext = m.group(1), m.group(2).lower()
-        urls.append(f"https://i.imgur.com/{h}.{ext}")
-
-    # Ekstrak album ID untuk di-skip (biar tidak ketangkap sebagai image hash)
-    album_id_match = re.search(r'/a/([a-zA-Z0-9_-]+)', album_url)
-    album_id = album_id_match.group(1) if album_id_match else ""
-
-    # Dedupe by hash (base id), buang suffix thumbnail (s/b/m/l/h/t di akhir jika ada)
-    seen_hash = set()
+    images = (data.get("data") or {}).get("images") or []
     out = []
-    for u in urls:
-        m = re.search(r'i\.imgur\.com/([a-zA-Z0-9_-]+)\.', u)
-        if not m:
+    for it in images:
+        h = (it.get("hash") or "").strip()
+        ext = (it.get("ext") or "").strip().lower()
+        if not h or ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
             continue
-        h = m.group(1)
-        # Skip: album ID (bukan image), atau hash = "removed"/"default"/dsb
-        if h == album_id or h.lower() in ("removed", "default", "image", "404"):
-            continue
-        # Buang thumbnail suffix tunggal (Imgur thumb variants)
-        base_h = re.sub(r'[sbmlht]$', '', h) if len(h) > 7 else h
-        if base_h in seen_hash:
-            continue
-        seen_hash.add(base_h)
-        out.append(u)
+        out.append(f"https://i.imgur.com/{h}{ext}")
+    return out[:20]
 
-    # Imgur postDataJSON urutan kebalikan dari tampilan album - reverse supaya
-    # gambar paling atas di album jadi yang pertama di-download.
-    out.reverse()
+
+def scrape_imgit(album_url):
+    """Scrape imgit.com album via public API -> list direct image URL.
+
+    Pakai endpoint `GET /api/albums/{slug}` (anonymous OK, no auth) yg return
+    `{data: {items: [{url, isVideo, ...}], ...}}` urut ascending by id.
+    Skip items dengan isVideo=true (bot upload gambar saja).
+    """
+    m = re.search(r'/a/([a-zA-Z0-9_-]+)', album_url)
+    if not m:
+        return []
+    slug = m.group(1)
+
+    api_url = f"https://imgit.com/api/albums/{slug}?limit=20"
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    try:
+        r = requests.get(api_url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+    except Exception:
+        return []
+
+    items = (data.get("data") or {}).get("items") or []
+    items.sort(key=lambda it: it.get("id", 0))
+    out = []
+    for it in items:
+        if it.get("isVideo"):
+            continue
+        url = (it.get("url") or "").strip()
+        if url:
+            out.append(url)
     return out[:20]
 
 
@@ -241,6 +262,55 @@ def scrape_postimg(gallery_url):
         if u not in seen:
             seen.add(u)
             out.append(u)
+    return out[:20]
+
+
+def scrape_gphotos(album_url):
+    """Scrape Google Photos shared album -> list direct image URL.
+
+    Support short link `photos.app.goo.gl/{id}` (auto-redirect) dan full URL
+    `photos.google.com/share/{id}?key=...`. Album data tersimpan di chunk
+    `AF_initDataCallback` (biasanya ds:1) — extract URL hanya dari chunk yg
+    paling kaya `/pw/` hits supaya urut tampilan album (cover image di header
+    HTML diabaikan). Append `=s2048` → versi sized ~200-800 KB (di bawah 5MB
+    filter) bukan thumbnail mungil default.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    try:
+        r = requests.get(album_url, headers=headers, timeout=30, allow_redirects=True)
+        if r.status_code != 200 or not r.text:
+            return []
+    except Exception:
+        return []
+
+    # Cari chunk AF_initDataCallback dengan /pw/ URLs terbanyak = album data.
+    # Header HTML sering punya cover/og:image yg bukan urut album → harus skip.
+    best_chunk = ""
+    best_count = 0
+    for m in re.finditer(
+        r"AF_initDataCallback\(\{key:\s*'ds:\d+'.*?data:(\[.*?\])\s*,\s*sideChannel",
+        r.text, re.DOTALL,
+    ):
+        chunk = m.group(1)
+        cnt = chunk.count("lh3.googleusercontent.com/pw/")
+        if cnt > best_count:
+            best_count = cnt
+            best_chunk = chunk
+
+    source = best_chunk if best_count > 0 else r.text  # fallback raw kalau parsing gagal
+
+    seen = set()
+    out = []
+    for m in re.finditer(r'https://lh3\.googleusercontent\.com/pw/[A-Za-z0-9_\-]+', source):
+        u = m.group(0)
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u + "=s2048")
     return out[:20]
 
 
@@ -347,6 +417,12 @@ def download_images_with_urls(gambar_url, max_images=20):
         except Exception as e:
             _log(f"Gagal scrape Imgur: {e}")
             return [], [], True
+    elif "imgit.com/a/" in gambar_url:
+        try:
+            image_urls = scrape_imgit(gambar_url)
+        except Exception as e:
+            _log(f"Gagal scrape Imgit: {e}")
+            return [], [], False
     elif "postimg.cc/gallery/" in gambar_url or "postimg.cc/album/" in gambar_url:
         try:
             image_urls = scrape_postimg(gambar_url)
@@ -359,6 +435,12 @@ def download_images_with_urls(gambar_url, max_images=20):
             image_urls = scrape_gdrive(gambar_url)
         except Exception as e:
             _log(f"Gagal scrape Google Drive: {e}")
+            return [], [], False
+    elif "photos.app.goo.gl/" in gambar_url or "photos.google.com/share/" in gambar_url:
+        try:
+            image_urls = scrape_gphotos(gambar_url)
+        except Exception as e:
+            _log(f"Gagal scrape Google Photos: {e}")
             return [], [], False
     else:
         _log(f"Image source tidak dikenali: {gambar_url}")
@@ -384,28 +466,22 @@ def download_images_with_urls(gambar_url, max_images=20):
                              allow_redirects=True)
             if is_drive:
                 ct = (r.headers.get("Content-Type", "") or "").lower()
-                if "png" in ct: ext = "png"
-                elif "gif" in ct: ext = "gif"
-                elif "webp" in ct: ext = "webp"
-                elif "jpeg" in ct or "jpg" in ct: ext = "jpg"
-                elif "text/html" in ct:
+                if "text/html" in ct:
                     _log(f"Gambar {i+1} butuh confirm (file besar di Drive), skip")
                     continue
-                else: ext = "jpg"
-            else:
-                ext = url.split(".")[-1].split("?")[0].lower()
-                if ext not in ["jpg","jpeg","png","gif","webp"]:
-                    ext = "jpg"
-            filename = os.path.join(temp_dir, f"img_{i+1:02d}.{ext}")
-            with open(filename, "wb") as f:
-                f.write(r.content)
-            size_mb = os.path.getsize(filename) / (1024 * 1024)
+            raw = r.content
+            size_mb = len(raw) / (1024 * 1024)
             if size_mb > 5:
                 _log(f"Gambar {i+1} ukuran {size_mb:.1f}MB > 5MB, skip")
-                os.remove(filename)
+                continue
+            filename = os.path.join(temp_dir, f"{i+1:02d}.jpg")
+            try:
+                _save_as_jpg(raw, filename)
+            except Exception as e:
+                _log(f"Gambar {i+1} decode/convert gagal ({type(e).__name__}: {str(e)[:60]}), skip")
                 continue
             local_paths.append(filename)
-            _log(f"Download gambar {i+1}/{len(image_urls)} ({size_mb:.1f}MB)")
+            _log(f"Download gambar {i+1}/{len(image_urls)} ({size_mb:.1f}MB) -> {os.path.basename(filename)}")
         except Exception as e:
             _log(f"Gagal download gambar {i+1}: {e}")
 
@@ -426,6 +502,12 @@ def download_images(gambar_url):
         except Exception as e:
             _log(f"Gagal scrape Imgur: {e}")
             return []
+    elif "imgit.com/a/" in gambar_url:
+        try:
+            image_urls = scrape_imgit(gambar_url)
+        except Exception as e:
+            _log(f"Gagal scrape Imgit: {e}")
+            return []
     elif "postimg.cc/gallery/" in gambar_url or "postimg.cc/album/" in gambar_url:
         try:
             image_urls = scrape_postimg(gambar_url)
@@ -438,6 +520,12 @@ def download_images(gambar_url):
             image_urls = scrape_gdrive(gambar_url)
         except Exception as e:
             _log(f"Gagal scrape Google Drive: {e}")
+            return []
+    elif "photos.app.goo.gl/" in gambar_url or "photos.google.com/share/" in gambar_url:
+        try:
+            image_urls = scrape_gphotos(gambar_url)
+        except Exception as e:
+            _log(f"Gagal scrape Google Photos: {e}")
             return []
     else:
         _log(f"Image source tidak dikenali: {gambar_url}")
@@ -456,37 +544,24 @@ def download_images(gambar_url):
             r = requests.get(url, timeout=30,
                              headers={"User-Agent": "Mozilla/5.0"},
                              allow_redirects=True)
-            # Tentukan ekstensi
             if is_drive:
                 ct = (r.headers.get("Content-Type", "") or "").lower()
-                if "png" in ct:
-                    ext = "png"
-                elif "gif" in ct:
-                    ext = "gif"
-                elif "webp" in ct:
-                    ext = "webp"
-                elif "jpeg" in ct or "jpg" in ct:
-                    ext = "jpg"
-                elif "text/html" in ct:
-                    # Drive kembalikan HTML konfirmasi (file besar) -> skip
+                if "text/html" in ct:
                     _log(f"Gambar {i+1} butuh confirm (file besar di Drive), skip")
                     continue
-                else:
-                    ext = "jpg"
-            else:
-                ext = url.split(".")[-1].split("?")[0].lower()
-                if ext not in ["jpg", "jpeg", "png", "gif", "webp"]:
-                    ext = "jpg"
-            filename = os.path.join(temp_dir, f"img_{i+1:02d}.{ext}")
-            with open(filename, "wb") as f:
-                f.write(r.content)
-            size_mb = os.path.getsize(filename) / (1024 * 1024)
+            raw = r.content
+            size_mb = len(raw) / (1024 * 1024)
             if size_mb > 5:
                 _log(f"Gambar {i+1} ukuran {size_mb:.1f}MB > 5MB, skip")
-                os.remove(filename)
+                continue
+            filename = os.path.join(temp_dir, f"{i+1:02d}.jpg")
+            try:
+                _save_as_jpg(raw, filename)
+            except Exception as e:
+                _log(f"Gambar {i+1} decode/convert gagal ({type(e).__name__}: {str(e)[:60]}), skip")
                 continue
             local_paths.append(filename)
-            _log(f"Download gambar {i+1}/{len(image_urls)} ({size_mb:.1f}MB)")
+            _log(f"Download gambar {i+1}/{len(image_urls)} ({size_mb:.1f}MB) -> {os.path.basename(filename)}")
         except Exception as e:
             _log(f"Gagal download gambar {i+1}: {e}")
 

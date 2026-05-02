@@ -52,6 +52,7 @@ if !FAST!==0 (
         beautifulsoup4 ^
         pywebview ^
         pythonnet ^
+        Pillow ^
         pyinstaller
     if errorlevel 1 (
         echo [ERROR] Upgrade packages gagal.
@@ -100,6 +101,7 @@ pyinstaller ^
     --hidden-import google.auth ^
     --hidden-import google.oauth2 ^
     --hidden-import google.generativeai ^
+    --hidden-import PIL.Image ^
     --hidden-import webview.platforms.edgechromium ^
     --hidden-import webview.platforms.winforms ^
     main.py
