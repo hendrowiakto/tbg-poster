@@ -1185,10 +1185,13 @@ def run_one_cycle(ctx):
             m["cache_parsed"] = _parse_cache_cell(m.get("cache_raw", ""), sentinel)
 
         sheet_obj = None
-        # Bottom-up scan: kerjakan row paling bawah dulu. Biasanya row bawah =
-        # data terbaru yg user input, jadi di-prioritaskan supaya listing baru
-        # cepat masuk market (row atas yg stuck PERLU POST bisa nunggu).
-        for row_idx, r in reversed(list(enumerate(rows))):
+        # ROW_ORDER config: 'bottom' (default) = row paling bawah dulu (data
+        # terbaru, listing baru cepat masuk market); 'top' = row 51 dulu.
+        row_order = (_ctx.config.get("ROW_ORDER", "bottom") or "bottom").strip().lower()
+        rows_iter = list(enumerate(rows))
+        if row_order != "top":
+            rows_iter = list(reversed(rows_iter))
+        for row_idx, r in rows_iter:
             if r.get("trigger_aj", "").strip().upper() != "PERLU POST":
                 continue
 

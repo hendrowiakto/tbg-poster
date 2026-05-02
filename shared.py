@@ -137,6 +137,11 @@ DISKON_MAX_WORKER=5
 # ============ SHARED ============
 SHARED_POLLING_INTERVAL=60
 LOG_RETENTION_DAYS=120
+
+# ROW_ORDER = arah scan row untuk pilih kerjaan. 'bottom' (default) = row
+# paling bawah dulu (data terbaru). 'top' = row paling atas dulu (51, 52, ...).
+# Berlaku untuk 3 bot (CREATE / DELETE / DISKON) konsisten.
+ROW_ORDER=bottom
 """
 
 

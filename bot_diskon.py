@@ -415,7 +415,13 @@ def scan_all_sheets(n=2):
         except Exception as e:
             add_log(f"Gagal resolve worksheet '{name}': {str(e)[:120]}. Skip tab ini.")
             continue
-        for baris_index in hits_per_tab[tab_idx]:
+        # ROW_ORDER config: 'bottom' (default) = row paling bawah dulu;
+        # 'top' = row paling atas dulu (51, 52, ...).
+        row_order = (_ctx.config.get("ROW_ORDER", "bottom") or "bottom").strip().lower()
+        baris_list = hits_per_tab[tab_idx]
+        if row_order != "top":
+            baris_list = list(reversed(baris_list))
+        for baris_index in baris_list:
             if len(results) >= n:
                 break
             # Defensive: re-verify flag di data fase 2 - catch race kalau user
