@@ -19,20 +19,91 @@ PlayerAuctions pakai NG-ZORRO (nz-select, ant-design). Opsi dropdown render
 di portal `.ant-select-dropdown` pakai `.ant-select-item-option`.
 """
 
+import json
 import random
 import re
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
+from shared import call_with_timeout
 from create._shared import (
     _worker_local,
     _log as add_log,
     _get_chrome_debug_port,
+    _get_gemini_model,
     xpath_literal as _xpath_literal,
     smart_wait as _base_smart_wait,
     get_or_create_context,
     resolve_image_future,
 )
+
+
+# ===================== ON-THE-FLY AI HELPERS =====================
+# Sub-options (cascading child nz-select) ndak ke-scrape di phase awal karena
+# disabled saat itu - jadi field_mapping shared dari Gemini multi call ndak
+# punya value untuk field-field ini. Solusi: AI inline call per field saat
+# bot mentok, biar ndak default ke opts[0] yang sering placeholder.
+_PLACEHOLDER_MARKERS = (
+    "please select", "select an option", "select...", "select option",
+    "choose...", "choose an option", "-- ", "—",
+)
+
+
+def _skip_placeholder(opts):
+    """Return opsi pertama yang bukan placeholder. Fallback ke opts[0] kalau
+    semua kena marker."""
+    if not opts:
+        return None
+    for opt in opts:
+        low = (opt or "").strip().lower()
+        if low and not any(m in low for m in _PLACEHOLDER_MARKERS):
+            return opt
+    return opts[0]
+
+
+def _ai_pick_one_pa(label, opts, title, game_name):
+    """Inline Gemini call untuk pilih 1 opsi dari list. Return option string
+    atau None kalau gagal/invalid. Dipakai sebagai fallback saat field_mapping
+    shared ndak punya value (cascading sub-option).
+    """
+    if not opts or len(opts) <= 1:
+        return None
+    model = _get_gemini_model()
+    if model is None:
+        return None
+    opts_json = json.dumps(opts, ensure_ascii=False)
+    prompt = f"""You are a form-filling assistant for a game account marketplace.
+
+Game: {game_name}
+Product title: {title}
+Field: {label}
+Available options: {opts_json}
+
+Pick the single best option for this field based on the product title.
+
+Rules:
+- Return ONLY the exact option string (one of the options above), no quotes, no markdown, no explanation.
+- AVOID placeholder options like "Please Select", "Choose...", or empty.
+- If the title has no clear hint, pick the most generic/common option (NOT the placeholder).
+"""
+    try:
+        response = call_with_timeout(
+            fn=lambda: model.generate_content(prompt),
+            timeout=20, name="pa_ai_pick_one",
+        )
+    except Exception as e:
+        add_log(f"[PA] AI pick '{label}' error: {str(e)[:80]}")
+        return None
+    text = (response.text or "").strip().strip('"').strip("'")
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
+    if text in opts:
+        return text
+    # Fuzzy match case-insensitive
+    low = text.lower()
+    for opt in opts:
+        if (opt or "").strip().lower() == low:
+            return opt
+    return None
 
 
 # PA anti-spam throttle: sangat ketat, sering timeout. Base × 1.75 + 0-50% jitter.
@@ -351,9 +422,15 @@ def scrape_form_options(game_name):
                     pass
 
 
-def _pick_option_in_nz_select(page, sel_el, preferred_value=None):
-    """Buka nz-select, pilih opsi. Priority: preferred_value kalau ada & valid,
-    fallback opsi pertama. Return (ok, picked_value)."""
+def _pick_option_in_nz_select(page, sel_el, preferred_value=None,
+                              label=None, title=None, game_name=None):
+    """Buka nz-select, pilih opsi. Priority chain:
+      1. preferred_value (dari shared AI mapping) kalau valid
+      2. AI inline call (kalau title+game_name+label disediakan) - khusus
+         sub-option cascading yg ndak masuk shared mapping
+      3. _skip_placeholder(opts) - opsi pertama non-placeholder
+    Return (ok, picked_value).
+    """
     trigger = sel_el.locator(".ant-select-selector").first
     trigger.click()
     smart_wait(page, 500, 900)
@@ -363,12 +440,16 @@ def _pick_option_in_nz_select(page, sel_el, preferred_value=None):
         _close_antd_dropdown(page)
         return False, None
 
-    # Klik opsi yg match preferred_value, atau pertama kalau ndak.
     pick = None
     if preferred_value and preferred_value in opts:
         pick = preferred_value
-    else:
-        pick = opts[0]
+    elif label and title:
+        ai_pick = _ai_pick_one_pa(label, opts, title, game_name or "")
+        if ai_pick:
+            pick = ai_pick
+            add_log(f"[PA] AI inline pick '{label}': {pick}")
+    if not pick:
+        pick = _skip_placeholder(opts)
 
     p_lit = _xpath_literal(pick)
     clicked = False
@@ -518,9 +599,9 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                         fcn = ""
                     label = _label_from_formcontrolname(fcn) or fcn or f"field{idx}"
 
-                    # Wait enabled max 5s (buat cascading: parent mungkin baru kepilih)
+                    # Wait enabled max 1.5s (cascading parent->child render <1s biasanya)
                     enabled = False
-                    for _ in range(25):
+                    for _ in range(8):
                         try:
                             cls = sel_el.get_attribute("class", timeout=300) or ""
                         except Exception:
@@ -534,9 +615,17 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                         continue
 
                     preferred = (field_mapping or {}).get(label)
-                    ok_pick, picked = _pick_option_in_nz_select(page, sel_el, preferred)
+                    ok_pick, picked = _pick_option_in_nz_select(
+                        page, sel_el, preferred,
+                        label=label, title=title, game_name=game_name,
+                    )
                     if ok_pick:
-                        src = "AI" if preferred and preferred == picked else "first-option"
+                        if preferred and preferred == picked:
+                            src = "AI-shared"
+                        elif preferred:
+                            src = "skip-placeholder"  # AI value ndak match opsi
+                        else:
+                            src = "AI-inline/skip-placeholder"
                         add_log(f"[PA] Isi {label}: {picked} ({src})")
                     else:
                         add_log(f"[PA] {label}: gagal pilih")
@@ -705,7 +794,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                     uploaded = 1
                     # Wait sampai preview muncul (baseline 0 -> 1) atau timeout
                     preview_ok = False
-                    for _ in range(120):  # 60s max
+                    for _ in range(30):  # 15s max
                         try:
                             if page.locator(
                                 "app-image-upload img, app-image-upload [class*='preview']"
@@ -716,7 +805,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                             pass
                         page.wait_for_timeout(500)
                     if not preview_ok:
-                        add_log("[PA] Cover image preview ndak muncul dalam 60s - lanjut")
+                        add_log("[PA] Cover image preview ndak muncul dalam 15s - lanjut")
                     else:
                         smart_wait(page, 600, 1000)
                 except Exception as e:
@@ -840,6 +929,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
                 "p.text-danger.p-t-1",            # PA inline error di bawah submit
                 ".ant-message-error",              # toast error
                 ".ant-notification-notice-error",  # notification error
+                ".ant-form-item-has-error .ant-form-item-explain",  # field validator (e.g. "Please select a faction")
             ]
             redirected = False
             inline_err = None
