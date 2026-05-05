@@ -47,7 +47,7 @@ Bot siap pakai dalam bentuk `.exe` — **tidak perlu install Python / git**.
 
 ### 1. Siapkan folder
 
-Bikin folder baru, misal `C:\Bot_AI_Poster\`.
+Bikin folder baru, misal `C:\Bot_Poster_v2\`.
 
 ### 2. Copy file dari dev (diserahkan oleh admin)
 
@@ -236,7 +236,7 @@ Kalau missing config, bot tampil popup error "Item berikut kurang" + list. Isi d
 
 ### Bot `update.bat` gagal
 
-- "Download gagal" — cek internet + URL: https://github.com/hendrowiakto/tbg-poster/releases/latest
+- "Download gagal" — cek internet + URL: https://github.com/hendrowiakto/tbg-poster-v2/releases/latest
 - "Gagal replace EXE" — bot masih jalan, tutup dulu window
 - Rollback: download EXE versi lama dari GitHub Releases, rename jadi `Bot Manage Listing.exe`, overwrite
 
@@ -292,7 +292,7 @@ Kalau missing config, bot tampil popup error "Item berikut kurang" + list. Isi d
 ## Struktur folder
 
 ```
-C:\Bot_AI_Poster\
+C:\Bot_Poster_v2\
 ├── main.py                    # Entry point + orchestrator loop
 ├── shared.py                  # BotContext + Config + Logger + Chrome + Sheets + Stats
 ├── bot_delete.py              # Bot DELETE (10 market inline)

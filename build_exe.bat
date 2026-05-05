@@ -86,6 +86,8 @@ pyinstaller ^
     --add-data "Bot Manage Listing.html;." ^
     --add-data "notif.wav;." ^
     --add-data "VERSION.txt;." ^
+    --add-data "prompt_title.txt;." ^
+    --add-data "prompt_title_trim.txt;." ^
     --collect-all playwright ^
     --collect-all webview ^
     --collect-all clr_loader ^

@@ -33,7 +33,7 @@ CREDENTIALS_FILE = os.path.join(SCRIPT_DIR, "credentials.json")
 VERSION_FILE     = os.path.join(SCRIPT_DIR, "VERSION.txt")
 LOG_DIR          = os.path.join(SCRIPT_DIR, "log")
 
-BOT_NAMES = ("delete", "create", "diskon")
+BOT_NAMES = ("delete", "create", "diskon", "title")
 
 STATS_FILE = os.path.join(SCRIPT_DIR, "stats.txt")
 

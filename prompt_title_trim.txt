@@ -1,0 +1,47 @@
+# ROLE: UNIVERSAL DATA COMPRESSOR (DYNAMIC MULTI-LINE)
+# TASK: Trim and optimize game listing titles to be high-density and fit a strict character limit.
+
+<input_parameters>
+- RAW_TITLES:
+{{hasil_bot_jika_terdapat_title_lebih_dariAF3}}
+- LIMIT: [sheets-AF3]
+- MANDATORY_SUFFIX: [sheets-A51:A]
+</input_parameters>
+
+<objective>
+Refine each line in RAW_TITLES. Each line must be as close as possible to [sheets-AF3] characters (aim for 90-100% fullness). Do not let it be too short, but NEVER exceed the limit.
+</objective>
+
+<trimming_logic>
+For EVERY line provided in RAW_TITLES, apply these steps independently:
+
+1. ANCHOR PRESERVATION:
+   - Keep the first word (Hook/Server) at the start.
+   - Keep the MANDATORY_SUFFIX "[sheets-A51:A]" at the very end.
+
+2. COMPRESSION & CLEANING:
+   - Use the shortest possible abbreviations for all game-specific terms (e.g., Lv, C6, R5, Rank, Star, etc.).
+   - Remove filler words (and, with, has, the, etc.).
+
+3. DENSITY ADJUSTMENT:
+   - IF OVER LIMIT: Delete the least important assets/items from the middle of the string until length is ≤ [sheets-AF3].
+   - IF TOO SHORT: Add back details, specific item names, or resource counts from the original text until the length is between 90-100% of [sheets-AF3].
+   - DELETE LEAST IMPORTANT TITLE: make sure to delete the least important title, this is about game [sheets-AF2].
+
+4. FINAL POLISH: Ensure no double spaces or trailing separators before the suffix, no duplicate title (if title more than one line).
+</trimming_logic>
+
+<strict_rules>
+- Output exactly the same number of lines as provided in RAW_TITLES.
+- Each line MUST be ≤ [sheets-AF3] characters.
+- No preamble, no explanation, no markdown code fences.
+- No character count labels [CC].
+</strict_rules>
+
+<output_format>
+(Processed Title 1)
+(Processed Title 2, if applicable)
+(Processed Title 3, if applicable)
+</output_format>
+
+# EXECUTE DYNAMIC TRIMMING NOW

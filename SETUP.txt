@@ -9,7 +9,7 @@ A. DEV PC (KAMU) - SETUP SEKALI
 1. GitHub CLI sudah ke-install (https://cli.github.com/) - SUDAH.
 
 2. Login ke GitHub (sekali seumur hidup):
-   Buka CMD di folder c:\Bot_AI_Poster, jalankan:
+   Buka CMD di folder c:\Bot_Poster_v2, jalankan:
 
        gh auth login
 
@@ -21,7 +21,7 @@ A. DEV PC (KAMU) - SETUP SEKALI
    - Authorize
 
 3. Inisialisasi repo (sekali seumur hidup):
-   Buka CMD di folder c:\Bot_AI_Poster, jalankan PERSIS:
+   Buka CMD di folder c:\Bot_Poster_v2, jalankan PERSIS:
 
        git init
        git branch -M main
@@ -50,7 +50,7 @@ Total waktu: ~2 menit.
 C. OFFICE PC - SETUP SEKALI
 ========================================
 
-Di PC kantor, bikin folder baru (contoh: c:\Bot_AI_Poster\),
+Di PC kantor, bikin folder baru (contoh: c:\Bot_Poster_v2\),
 lalu copy file berikut ke dalamnya (sekali seumur hidup):
 
   Dari dev PC:

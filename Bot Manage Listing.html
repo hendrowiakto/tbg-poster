@@ -30,6 +30,8 @@
     --danger-dim: oklch(0.63 0.22 20 / 0.12);
     --warning: oklch(0.72 0.18 78);
     --warning-dim: oklch(0.72 0.18 78 / 0.12);
+    --purple: #9333ea;
+    --purple-dim: rgba(147, 51, 234, 0.14);
     --sidebar-width: 290px;
     --header-h: 54px;
     --footer-h: 52px;
@@ -103,6 +105,7 @@ const icons = {
   delete: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
   create: "M12 5v14M5 12h14",
   diskon: "M19 5L5 19M9 6.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM20.5 17.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z",
+  title: "M4 7V5h16v2M9 5v14M15 5v14M9 19h6",
   log: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6",
   sheets: "M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zM3 9h18M3 15h18M9 3v18",
   scan: "M5 3H3v4M19 3h2v4M5 21H3v-4M19 21h2v-4M12 8v8M8 12h8",
@@ -166,6 +169,10 @@ const initialStats = {
     allTime: { GM:{sukses:16,gagal:2,total:18} },
     today:   { sukses:16, gagal:2, total:18 },
   },
+  TITLE: {
+    allTime: {},
+    today:   { sukses:0, gagal:0, total:0 },
+  },
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -218,8 +225,8 @@ function Toggle({ on, onToggle, alwaysOn }) {
 }
 
 function BotCard({ label, icon, color, active, running, onToggle, status, progress, taskCount = 0 }) {
-  const colorMap = { blue:'var(--accent)', green:'var(--success)', warning:'var(--warning)', danger:'var(--danger)' };
-  const dimMap = { blue:'var(--accent-dim)', green:'var(--success-dim)', warning:'var(--warning-dim)', danger:'var(--danger-dim)' };
+  const colorMap = { blue:'var(--accent)', green:'var(--success)', warning:'var(--warning)', danger:'var(--danger)', purple:'var(--purple)' };
+  const dimMap = { blue:'var(--accent-dim)', green:'var(--success-dim)', warning:'var(--warning-dim)', danger:'var(--danger-dim)', purple:'var(--purple-dim)' };
   const c = colorMap[color] || colorMap.blue;
   const cdim = dimMap[color] || dimMap.blue;
   const [elapsed, setElapsed] = useState(0);
@@ -406,7 +413,7 @@ function StatTable({ stats, tab }) {
       <table style={{ width:'100%', borderCollapse:'collapse' }}>
         <thead>
           <tr>
-            <th style={{ ...thStyle, textAlign:'left', paddingLeft:0 }}>Platform</th>
+            <th style={{ ...thStyle, textAlign:'left', paddingLeft:0 }}>{tab === 'TITLE' ? 'Game' : 'Platform'}</th>
             <th style={thStyle}>Sukses</th>
             <th style={thStyle}>Gagal</th>
             <th style={thStyle}>Total</th>
@@ -442,7 +449,7 @@ function StatTable({ stats, tab }) {
 }
 
 function LogEntry({ entry, showTimestamps, fontSize }) {
-  const levelColors = { APP:'var(--accent)', DELETE:'var(--danger)', CREATE:'var(--success)', DISKON:'var(--warning)', ERR:'var(--danger)', OK:'var(--success)', WARN:'var(--warning)', SYS:'var(--text3)' };
+  const levelColors = { APP:'var(--accent)', DELETE:'var(--danger)', CREATE:'var(--success)', DISKON:'var(--warning)', TITLE:'var(--purple)', ERR:'var(--danger)', OK:'var(--success)', WARN:'var(--warning)', SYS:'var(--text3)' };
   const c = levelColors[entry.level] || 'var(--text2)';
   const [hov, setHov] = useState(false);
   return (
@@ -656,6 +663,7 @@ function App() {
     DELETE: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
     CREATE: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
     DISKON: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
+    TITLE:  { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
   });
   const [autoScroll, setAutoScroll] = useState(true);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
@@ -666,6 +674,7 @@ function App() {
     DELETE: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'danger',  icon: 'delete' },
     CREATE: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'green',   icon: 'create' },
     DISKON: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'warning', icon: 'diskon' },
+    TITLE:  { active: false, enabled: false, status: 'Standby', progress: 0, color: 'purple',  icon: 'title'  },
   });
   const logRef = useRef(null);
   const logIdRef = useRef(50000);
@@ -933,7 +942,7 @@ function App() {
                 display:'flex', gap:2, marginBottom:10,
                 background:'var(--surface3)', borderRadius:8, padding:3,
               }}>
-                {['DELETE','CREATE','DISKON'].map(t => {
+                {['DELETE','CREATE','DISKON','TITLE'].map(t => {
                   const isActive = activeTab === t;
                   const [hov, setHov] = React.useState(false);
                   return (

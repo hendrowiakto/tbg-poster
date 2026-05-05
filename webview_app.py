@@ -157,9 +157,9 @@ _LOG_RE = re.compile(
 )
 
 # Levels yang dikenal UI; selain itu fallback ke 'SYS'.
-_KNOWN_LEVELS = {"APP", "DELETE", "CREATE", "DISKON", "ERR", "OK", "WARN", "SYS"}
+_KNOWN_LEVELS = {"APP", "DELETE", "CREATE", "DISKON", "TITLE", "ERR", "OK", "WARN", "SYS"}
 
-_BOT_KEYS_UI = ("DELETE", "CREATE", "DISKON")   # uppercase -> cocok UI
+_BOT_KEYS_UI = ("DELETE", "CREATE", "DISKON", "TITLE")   # uppercase -> cocok UI
 _RUNNING_PHASES = ("running", "scanning", "processing")
 
 
