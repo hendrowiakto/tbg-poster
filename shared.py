@@ -505,6 +505,13 @@ class ChromeManager:
             self.logger.log("app", f"Cleanup tab error: {str(e)[:80]}")
 
     def terminate(self):
+        """Cross-platform Chrome terminator. Pertama proc.terminate() (SIGTERM/
+        TerminateProcess), terus aggressive cleanup yg match user_data_dir biar
+        ndak ada Chrome zombie yg lock profile dir (cegah next launch fail).
+
+        - Windows: taskkill /F /T + PowerShell Win32_Process sweep
+        - macOS/Linux: os.kill(pid, SIGKILL) + pkill -f matching --user-data-dir
+        """
         proc = self.process
         self.process = None
         pid = None
@@ -519,38 +526,55 @@ class ChromeManager:
             except Exception:
                 pass
 
-        if os.name != "nt":
-            return
+        if sys.platform == "win32":
+            CREATE_NO_WINDOW = 0x08000000
+            if pid:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(pid)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5, creationflags=CREATE_NO_WINDOW,
+                    )
+                except Exception:
+                    pass
 
-        CREATE_NO_WINDOW = 0x08000000
-        if pid:
+            udd = (self.user_data_dir or "").strip()
+            if not udd:
+                return
+            udd_esc = udd.replace("'", "''")
+            ps_cmd = (
+                "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+                f"| Where-Object {{ $_.CommandLine -like '*{udd_esc}*' }} "
+                "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
+                "-ErrorAction SilentlyContinue }"
+            )
             try:
                 subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    timeout=5, creationflags=CREATE_NO_WINDOW,
+                    timeout=8, creationflags=CREATE_NO_WINDOW,
                 )
             except Exception:
                 pass
-
-        udd = (self.user_data_dir or "").strip()
-        if not udd:
-            return
-        udd_esc = udd.replace("'", "''")
-        ps_cmd = (
-            "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
-            f"| Where-Object {{ $_.CommandLine -like '*{udd_esc}*' }} "
-            "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
-            "-ErrorAction SilentlyContinue }"
-        )
-        try:
-            subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=8, creationflags=CREATE_NO_WINDOW,
-            )
-        except Exception:
-            pass
+        else:
+            # macOS / Linux
+            if pid:
+                try:
+                    os.kill(pid, 9)  # SIGKILL fallback kalau proc.terminate ndak nge-cleanup
+                except (ProcessLookupError, OSError):
+                    pass
+            udd = (self.user_data_dir or "").strip()
+            if udd:
+                try:
+                    # pkill -f match against full command line, termasuk --user-data-dir flag.
+                    # Bunuh semua chrome process yg pakai profile dir kita.
+                    subprocess.run(
+                        ["pkill", "-f", f"--user-data-dir={udd}"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
 
 
 # ===================== SHEETS CLIENT =====================

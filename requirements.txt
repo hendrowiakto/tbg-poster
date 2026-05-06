@@ -1,0 +1,17 @@
+# Bot Manage Listing - Python dependencies
+# Install: pip install -r requirements.txt
+#
+# pythonnet (.NET integration) cuma dibutuhin di Windows untuk pywebview WinForms
+# backend. macOS pakai WebKit native, Linux pakai GTK - ndak butuh pythonnet.
+# Conditional install via PEP 508 environment marker.
+
+gspread>=6.0.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-generativeai>=0.8.0
+playwright>=1.40.0
+requests>=2.30.0
+beautifulsoup4>=4.12.0
+pywebview>=5.0
+Pillow>=10.0.0
+pythonnet>=3.0.0; sys_platform == "win32"

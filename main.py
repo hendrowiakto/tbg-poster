@@ -324,15 +324,33 @@ def chrome_monitor_daemon(ctx):
 
 # ===================== ENTRY =====================
 def _show_config_error(missing):
-    """Config belum lengkap: coba native dialog, fallback ke stdout."""
+    """Config belum lengkap: coba native dialog per-platform, fallback ke stdout.
+    - Windows: ctypes Win32 MessageBoxW (built-in, no install needed).
+    - macOS  : 'osascript' AppleScript dialog (built-in di macOS).
+    - Linux  : skip native, langsung print ke stderr (mayoritas Linux desktop
+                 punya zenity/kdialog tapi ndak universal, pakai stderr).
+    """
     body = ("Item berikut kurang / invalid di config.txt atau credentials.json:\n\n"
             + "\n".join(f"- {m}" for m in missing)
             + f"\n\nEdit file di:\n{SCRIPT_DIR}\n\nLalu jalankan ulang aplikasi.")
-    try:
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, body, "Config tidak lengkap", 0x10)
-    except Exception:
-        print("CONFIG ERROR:\n" + body, file=sys.stderr)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, body, "Config tidak lengkap", 0x10)
+            return
+        except Exception:
+            pass
+    elif sys.platform == "darwin":
+        try:
+            import subprocess
+            # Escape kutip untuk AppleScript string literal.
+            escaped = body.replace("\\", "\\\\").replace('"', '\\"')
+            script = f'display dialog "{escaped}" with title "Config tidak lengkap" buttons {{"OK"}} default button "OK" with icon stop'
+            subprocess.run(["osascript", "-e", script], timeout=30)
+            return
+        except Exception:
+            pass
+    print("CONFIG ERROR:\n" + body, file=sys.stderr)
 
 
 def main():

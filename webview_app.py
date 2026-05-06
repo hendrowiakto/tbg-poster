@@ -64,13 +64,15 @@ ICON_PATH = _resolve_icon_path()
 
 # AppUserModelID: kasih taskbar group identity sendiri biar Windows pakai
 # icon kita (tanpa ini taskbar kadang warisi icon Python host).
-try:
-    import ctypes as _ct
-    _ct.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-        "GameMarket.BotManageListing"
-    )
-except Exception:
-    pass
+# macOS/Linux: skip - feature ini Win32-only.
+if sys.platform == "win32":
+    try:
+        import ctypes as _ct
+        _ct.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "GameMarket.BotManageListing"
+        )
+    except Exception:
+        pass
 
 
 def _apply_window_icon(title, ico_path):
@@ -81,7 +83,11 @@ def _apply_window_icon(title, ico_path):
 
     NOTE: LoadImageW tidak support PNG-compressed .ico. Pakai
     LoadIconWithScaleDown (comctl32, Vista+) yang support PNG entry.
+
+    macOS/Linux: no-op. macOS pakai .icns bundled di .app, ndak perlu Win32 API.
     """
+    if sys.platform != "win32":
+        return
     try:
         import ctypes
         from ctypes import wintypes
@@ -230,7 +236,16 @@ class BotAPI:
     def open_log_folder(self):
         try:
             os.makedirs(LOG_DIR, exist_ok=True)
-            os.startfile(LOG_DIR)
+            # Cross-platform open file manager:
+            # - Windows: os.startfile (built-in)
+            # - macOS  : 'open' command (Finder)
+            # - Linux  : 'xdg-open' command (default file manager)
+            if sys.platform == "win32":
+                os.startfile(LOG_DIR)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", LOG_DIR])
+            else:
+                subprocess.Popen(["xdg-open", LOG_DIR])
             return {"ok": True}
         except Exception as e:
             self._log(f"Gagal buka folder log: {e}")
@@ -308,29 +323,39 @@ class BotAPI:
         return {"ok": True}
 
     def set_always_on_top(self, enabled):
-        # BUG pywebview 6.2.1: Window.on_top setter tidak marshal ke UI thread -
-        # set WinForms.TopMost dari js_api worker thread bikin app hang.
+        # Windows: BUG pywebview 6.2.1: Window.on_top setter tidak marshal ke UI
+        # thread - set WinForms.TopMost dari js_api worker thread bikin app hang.
         # Workaround: ambil Form instance langsung, panggil lewat .Invoke() ke UI thread.
+        # macOS/Linux: pywebview Window.on_top setter aman di-call langsung
+        # (Cocoa & GTK marshal ke UI thread sendiri internally).
         w = self._window()
         if not w:
             return {"ok": True, "value": bool(enabled)}
         val = bool(enabled)
-        try:
-            from webview.platforms.winforms import BrowserView
-            from System import Action
-            form = BrowserView.instances.get(w.uid)
-            if form is None:
-                return {"ok": False, "error": "form not found"}
-            def _apply():
-                form.TopMost = val
-            form.Invoke(Action(_apply))
-            # Sinkron juga internal state pywebview biar konsisten kalau ada
-            # akses lanjutan ke w.on_top.
-            try: w._Window__on_top = val
-            except Exception: pass
-            return {"ok": True, "value": val}
-        except Exception as e:
-            return {"ok": False, "error": str(e)[:160]}
+        if sys.platform == "win32":
+            try:
+                from webview.platforms.winforms import BrowserView
+                from System import Action
+                form = BrowserView.instances.get(w.uid)
+                if form is None:
+                    return {"ok": False, "error": "form not found"}
+                def _apply():
+                    form.TopMost = val
+                form.Invoke(Action(_apply))
+                # Sinkron juga internal state pywebview biar konsisten kalau ada
+                # akses lanjutan ke w.on_top.
+                try: w._Window__on_top = val
+                except Exception: pass
+                return {"ok": True, "value": val}
+            except Exception as e:
+                return {"ok": False, "error": str(e)[:160]}
+        else:
+            # macOS / Linux: panggil langsung via pywebview API.
+            try:
+                w.on_top = val
+                return {"ok": True, "value": val}
+            except Exception as e:
+                return {"ok": False, "error": str(e)[:160]}
 
     def _window(self):
         if self._window_ref and self._window_ref[0]:
