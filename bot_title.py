@@ -99,8 +99,8 @@ TRIGGER_TEXT  = "PERLU TITLE"
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
 MAX_IMAGES        = 20
 DOWNLOAD_TIMEOUT  = 60
-GEMINI_TIMEOUT    = 150     # was 60 (flash-lite); flash thinking butuh lebih lama
-ROW_TIMEOUT       = 240     # was 120; total: download 60 + main 150 + trim retries + writes
+GEMINI_TIMEOUT    = 180     # was 150; flash thinking butuh lebih lama
+ROW_TIMEOUT       = 270     # total: download 60 + main 180 + trim retries + writes
 
 # Char-limit enforce (post-Gemini): split hasil per line, retry trim line yang
 # out-of-bounds lewat Gemini text-only call (hemat token, ndak re-send images).
