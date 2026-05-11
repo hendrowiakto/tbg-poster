@@ -601,9 +601,10 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
             if raw_image_url:
                 raw_line = re.sub(r"^https?://", "", raw_image_url.strip())
                 body_lines.append(f"Full Screenshot Detail: {raw_line}")
+                body_lines.append("")  # blank line antara URL dan title
             if title:
                 body_lines.append(title)
-            body_lines.append("")  # blank line separator
+            body_lines.append("")  # blank line antara title dan deskripsi
             body_lines.append(deskripsi or "")
             body_text = "\n".join(body_lines)
             desc_input.fill(body_text)
