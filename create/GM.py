@@ -541,12 +541,20 @@ def _extract_listing_url(page):
 
 
 def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_paths,
-                   image_future=None):
+                   image_future=None, raw_image_url=None):
     """Full flow isi form & submit. Return (berhasil, error_message).
 
     `image_future` (optional): future yg resolve ke (paths, urls, is_imgur)
     dari download background thread. Di-resolve tepat sebelum step upload
-    (async pattern). Fallback ke `image_paths` kalau None."""
+    (async pattern). Fallback ke `image_paths` kalau None.
+
+    `raw_image_url` (optional): URL album gambar dari kolom I sheet. Di-prepend
+    di body description (mirror PA pattern) + title line di bawahnya:
+        Full Screenshot Detail: <url stripped scheme>
+        <title>
+
+        <deskripsi original>
+    """
     with sync_playwright() as p:
         page = None
         try:
@@ -583,13 +591,22 @@ def create_listing(game_name_gm, title, deskripsi, harga, field_mapping, image_p
             title_input.fill(title)
             smart_wait(page, 500, 1000)
 
-            # 5. Description
+            # 5. Description (prepend image URL + title, mirror PA pattern)
             add_log("[GM] Isi Description...")
             desc_input = page.locator(
                 "textarea[placeholder*='escribe' i], textarea[name='description']"
             ).first
             desc_input.wait_for(state="visible", timeout=10000)
-            desc_input.fill(deskripsi)
+            body_lines = []
+            if raw_image_url:
+                raw_line = re.sub(r"^https?://", "", raw_image_url.strip())
+                body_lines.append(f"Full Screenshot Detail: {raw_line}")
+            if title:
+                body_lines.append(title)
+            body_lines.append("")  # blank line separator
+            body_lines.append(deskripsi or "")
+            body_text = "\n".join(body_lines)
+            desc_input.fill(body_text)
             smart_wait(page, 500, 1000)
 
             # 7. Delivery = In-Chat (radix checkbox button)
@@ -897,7 +914,8 @@ def run(sheet, baris_nomor, worker_id, *, game_name, description, title, harga,
 
     ok, err, listing_url = create_listing(game_name, title, description, harga,
                                           field_mapping or {}, image_paths,
-                                          image_future=image_future)
+                                          image_future=image_future,
+                                          raw_image_url=raw_image_url)
     ts = datetime.now().strftime("%d %b, %y | %H:%M")
     if ok:
         # Count gambar - async mode: ambil dari future (create_listing udah
