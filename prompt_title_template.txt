@@ -85,14 +85,50 @@ Rules for lookup values:
 7. "isi" must contain ONLY descriptive content — characters, levels, items,
    currencies, achievements, etc. It must NOT contain:
    - Any reference to the listing code or account ID.
-   - Structural separators (pipes "|", brackets "[]", trailing parens around
-     codes) that look like template literals.
    - Repeated copies of lookup values you already output in the "lookup_*"
      fields (e.g. don't put server name inside "isi" — it's already in
      "lookup_server").
-   Inside "isi" you MAY use commas, slashes, dashes, and normal parens around
-   feature names (e.g. "Hu Tao (C2)", "Hydro/Pyro DPS"), as long as those
-   don't look like template structural literals.
+   Inside "isi" you MAY (and SHOULD, if references use them) use:
+     pipes "|"      as inner section separator
+     commas ","     as item separator within a section
+     slashes "/"    for "X/Y" pairs (e.g. "Hydro/Pyro DPS")
+     parens "()"    around feature labels (e.g. "Hu Tao (C2)")
+     plus "+"       for combinations (e.g. "Linnea+Sign", "9Limited+7")
+   Match the punctuation style of REFERENCE_TITLES verbatim.
+
+8. STRICT STYLE MIRRORING (highest priority for "isi"):
+   "isi" MUST mimic the structure, separator pattern, and verbal density of
+   REFERENCE_TITLES literally. If references use inner pipes "|" between
+   sections, you MUST use the same. If references use abbreviations like
+   "AR 58", "L90", "FR54", "McMale", "9Limited+7(*5Wep)", you MUST use those
+   EXACT patterns — never write the full forms.
+
+   FORBIDDEN FILLER WORDS / phrases (these never appear in references — they
+   add nothing, just bloat length):
+     "featuring", "with", "includes", "including", "offers", "holds", "such",
+     "such as", "like", "for", "has", "this account", "an account", "account
+     featuring", "and includes", "plus 10", "a roster of", "equipped with",
+     "currently", "comes with", "Adventure Rank" (write "AR")
+
+   FORBIDDEN PROSE STRUCTURE:
+     - Full English sentences. Each section is a TERSE LABEL, not a sentence.
+     - "Lv. 50", "Level 50", "Lvl 50" → write "L50" or "Lv50" (mirror what
+       references use most).
+     - "5-star weapons" → "*5Wep" if references abbreviate that way.
+     - Numbered counts like "10 five-star weapons" → "10(*5Wep)" pattern.
+
+   DENSITY TARGET: every character in "isi" must carry information. If you
+   have spare characters within budget, ADD MORE FACTS, never pad with prose.
+
+9. STYLE INFERENCE FROM REFERENCE_TITLES: before writing "isi", silently
+   identify in REFERENCE_TITLES:
+     - the inner separator (usually "|")
+     - abbreviation conventions for level / rank / resources
+     - section ordering (server → AR → team → counts → characters → resources
+       → MC gender → trust signal)
+     - punctuation density (parens around character groups, commas inside)
+   Mirror these patterns. Your "isi" should be readable side-by-side with a
+   reference title and look like the same author wrote it.
 </hard_rules>
 
 <output_format>
