@@ -40,3 +40,7 @@ BotManageListing.new.exe
 *.rar
 *.zip
 *.7z
+
+# ===== User local backups =====
+prompt_title - backup.txt
+*backup*.txt

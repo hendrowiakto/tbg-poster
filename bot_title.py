@@ -24,7 +24,9 @@ Stats key: nama tab game (bukan platform/market). 1 worker max (sequential).
 """
 
 import os
+import re
 import sys
+import json
 import time
 import threading
 
@@ -65,12 +67,8 @@ def _resolve_prompt_file(filename):
     return primary  # error path - akan fail di open() dengan FileNotFoundError yg jelas
 
 
-def _resolve_prompt_path():
-    return _resolve_prompt_file("prompt_title.txt")
-
-
-def _resolve_trim_prompt_path():
-    return _resolve_prompt_file("prompt_title_trim.txt")
+def _resolve_template_prompt_path():
+    return _resolve_prompt_file("prompt_title_template.txt")
 
 
 # ===================== KONSTANTA =====================
@@ -102,22 +100,17 @@ DOWNLOAD_TIMEOUT  = 60
 GEMINI_TIMEOUT    = 180     # was 150; flash thinking butuh lebih lama
 ROW_TIMEOUT       = 270     # total: download 60 + main 180 + trim retries + writes
 
-# Char-limit enforce (post-Gemini): split hasil per line, retry trim line yang
-# out-of-bounds lewat Gemini text-only call (hemat token, ndak re-send images).
-# Bounds: CHAR_LIMIT_LOWER <= len <= AF3.
-# - Lebih panjang dari AF3      -> retry trim pakai current text (incremental shrink)
-# - Lebih pendek dari LOWER     -> retry trim pakai ORIGINAL pre-trim text
-#                                  (current text terlalu compressed, ndak ada
-#                                  material buat di-expand)
-# - Setelah TRIM_MAX_RETRIES masih out-of-bounds -> prefix "❌ " ke line tsb
-#   sebelum tulis ke J cell (visual indicator buat user, trigger AL tetap off
-#   karena J non-empty).
+# Char-limit enforce (Python-side, post-assembly):
+# - Bounds: CHAR_LIMIT_LOWER <= assembled_len <= AF3.
+# - Lebih panjang dari AF3 -> Python auto-trim ISI ke word-boundary, re-assemble.
+# - Lebih pendek dari CHAR_LIMIT_LOWER -> prefix "❌ " ke title (rare karena
+#   ISI budget di-prompt minimum).
+# Tidak ada Gemini trim retry — Python deterministic trim cukup karena struktur
+# fixed (token mechanical). Drift cuma di ISI length, fixable via word-boundary cut.
 CHAR_LIMIT_DEFAULT = 150
 CHAR_LIMIT_MIN     = 50
 CHAR_LIMIT_MAX     = 500
 CHAR_LIMIT_LOWER   = 100
-TRIM_MAX_RETRIES   = 3
-TRIM_TIMEOUT       = 30
 
 
 # ===================== CTX BINDING =====================
@@ -285,7 +278,7 @@ def _find_first_trigger_row(tab_name):
 
 
 def _read_row_context(tab_name, baris):
-    """1 batch_get (3 ranges): A{n} + I{n} + AF2:AF15. Return dict atau None.
+    """1 batch_get (3 ranges): A{n} + I{n} + AF2:AF16. Return dict atau None.
 
     Mapping placeholder prompt:
       [sheets-A51]      -> A{n}                  (kode listing, MANDATORY_SUFFIX)
@@ -294,12 +287,14 @@ def _read_row_context(tab_name, baris):
       [sheets-AF4]      -> AF4                   (TARGET_VARIANTS)
       [sheets-AF5:AF14] -> AF5..AF14 join \\n    (REFERENCE_TITLES)
       [sheets-AF15]     -> AF15                  (METADATA_POOL JSON)
+      [sheets-AF16]     -> AF16                  (TITLE_TEMPLATE, opsional;
+                                                  kosong -> AI free-form mode)
     """
     try:
         ranges = [
             f"'{tab_name}'!A{baris}",
             f"'{tab_name}'!I{baris}",
-            f"'{tab_name}'!AF2:AF15",
+            f"'{tab_name}'!AF2:AF16",
         ]
         resp = spreadsheet_client.values_batch_get(ranges=ranges)
         vranges = resp.get("valueRanges", []) or []
@@ -319,7 +314,7 @@ def _read_row_context(tab_name, baris):
     af_values = vranges[2].get("values", []) if len(vranges) >= 3 else []
 
     def _af(rownum):
-        # AF2 -> idx 0, AF3 -> idx 1, ..., AF15 -> idx 13
+        # AF2 -> idx 0, AF3 -> idx 1, ..., AF16 -> idx 14
         idx = rownum - 2
         try:
             row = af_values[idx]
@@ -331,6 +326,7 @@ def _read_row_context(tab_name, baris):
     af3  = _af(3)
     af4  = _af(4)
     af15 = _af(15)
+    af16 = _af(16)
     af5_14 = []
     for n in range(5, 15):
         v = _af(n)
@@ -345,45 +341,65 @@ def _read_row_context(tab_name, baris):
         "af4": af4,
         "af5_14": af5_14,
         "af15": af15,
+        "af16": af16,
     }
 
 
 def _load_prompt_template():
-    """Load prompt_title.txt setiap call (hot-reload, user bisa edit on-the-fly).
+    """Load prompt_title_template.txt setiap call (hot-reload).
     Resolve path: next-to-exe (user override) -> _MEIPASS bundle (default).
     Return string atau None kalau file missing/error.
+
+    Hanya ada SATU mode sekarang: template mode. Bot menolak proses row kalau
+    AF16 (template) kosong — free-form dihapus karena structural drift terlalu
+    tinggi. Python yang assemble title dari tokens, AI cuma extract data.
     """
-    path = _resolve_prompt_path()
+    path = _resolve_template_prompt_path()
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        add_log(f"prompt_title.txt missing di {path}")
+        add_log(f"prompt_title_template.txt missing di {path}")
         return None
     except Exception as e:
-        add_log(f"Gagal load prompt_title.txt: {str(e)[:150]}")
+        add_log(f"Gagal load prompt_title_template.txt: {str(e)[:150]}")
         return None
 
 
-def _build_prompt(template, data):
-    """Substitusi placeholder [sheets-XXX] dengan nilai dari sheet.
+def _build_prompt(template, data, lookup_spec, isi_min, isi_max, variants_count):
+    """Substitusi semua placeholder di prompt template.
 
-    [sheets-A51:A] = kolom A row yg sedang diproses (kode listing dynamic).
-                     Notasi 'A51:A' = column-A range dari row 51, jadi value-nya
-                     = A{baris_yang_sedang_diproses}, bukan literal cell A51.
-    [sheets-A51]   = legacy alias, di-handle juga biar prompt versi lama tetap
-                     jalan kalau user revert.
+    Static placeholders (dari sheet):
+      [sheets-AF2]      -> GAME_NAME
+      [sheets-AF3]      -> CHAR_LIMIT (full title)
+      [sheets-AF4]      -> TARGET_VARIANTS (legacy, sekarang pakai [VARIANTS_REQUESTED])
+      [sheets-AF5:AF14] -> REFERENCE_TITLES joined newline
+      [sheets-AF15]     -> METADATA_POOL raw JSON string
+      [sheets-A51:A]    -> LISTING_CODE (kode listing dari kolom A row diproses)
+      [sheets-A51]      -> alias legacy
+
+    Dynamic placeholders (computed per row):
+      [VARIANTS_REQUESTED]         -> int, harus exact
+      [ISI_MIN_CHARS]              -> int, lower bound ISI
+      [ISI_MAX_CHARS]              -> int, upper bound ISI
+      [LOOKUP_KEYS_SPEC]           -> human-readable spec semua lookup keys
+      [LOOKUP_KEYS_JSON_TEMPLATE]  -> JSON skeleton lines untuk output_format
     """
-    af5_14_joined = "\n".join(data["af5_14"]) if data["af5_14"] else ""
+    af5_14_joined = "\n".join(data["af5_14"]) if data["af5_14"] else "(empty)"
     return (
         template
         .replace("[sheets-AF2]", data["af2"])
         .replace("[sheets-AF3]", data["af3"])
-        .replace("[sheets-AF4]", data["af4"])
+        .replace("[sheets-AF4]", str(variants_count))
         .replace("[sheets-AF5:AF14]", af5_14_joined)
         .replace("[sheets-AF15]", data["af15"])
         .replace("[sheets-A51:A]", data["kode"])
         .replace("[sheets-A51]",   data["kode"])
+        .replace("[VARIANTS_REQUESTED]", str(variants_count))
+        .replace("[ISI_MIN_CHARS]", str(isi_min))
+        .replace("[ISI_MAX_CHARS]", str(isi_max))
+        .replace("[LOOKUP_KEYS_SPEC]", _build_lookup_keys_spec_text(lookup_spec))
+        .replace("[LOOKUP_KEYS_JSON_TEMPLATE]", _build_lookup_keys_json_template(lookup_spec))
     )
 
 
@@ -417,7 +433,260 @@ def _call_gemini_with_images(prompt, image_paths):
     return text
 
 
-# ===================== CHAR-LIMIT ENFORCE =====================
+# ===================== TEMPLATE PARSER + ASSEMBLER =====================
+# Architecture: AF16 template di-parse jadi tokens. Gemini cuma diminta extract
+# lookup values + compose "isi" body (JSON output). Python ASSEMBLE final title
+# secara deterministic — zero structure drift.
+
+_TOKEN_RE = re.compile(r'\{([^}]*)\}')
+
+
+def _parse_template(af16):
+    """Parse AF16 template string jadi list of (type, content) tokens.
+
+    Token types:
+      ('literal', text) -> raw chars di luar {} ATAU {"text"} content
+      ('isi', None)     -> {ISI} slot, di-fill AI body
+      ('kode', None)    -> {KODE} slot, di-fill kode listing
+      ('lookup', key)   -> {SomeKey} slot, di-fill via METADATA_POOL lookup
+
+    Contoh: '{Server}|{ISI}|TakeMail({KODE})' →
+      [('lookup','Server'), ('literal','|'), ('isi',None),
+       ('literal','|TakeMail('), ('kode',None), ('literal',')')]
+    """
+    tokens = []
+    last_end = 0
+    for m in _TOKEN_RE.finditer(af16):
+        if m.start() > last_end:
+            tokens.append(("literal", af16[last_end:m.start()]))
+        inner = m.group(1)
+        if len(inner) >= 2 and inner.startswith('"') and inner.endswith('"'):
+            tokens.append(("literal", inner[1:-1]))
+        elif inner == "ISI":
+            tokens.append(("isi", None))
+        elif inner == "KODE":
+            tokens.append(("kode", None))
+        else:
+            tokens.append(("lookup", inner))
+        last_end = m.end()
+    if last_end < len(af16):
+        tokens.append(("literal", af16[last_end:]))
+    return tokens
+
+
+def _extract_lookup_keys(tokens):
+    """Return list of unique lookup keys di template (case preserved, urutan first-seen)."""
+    seen = set()
+    result = []
+    for type_, content in tokens:
+        if type_ == "lookup" and content.lower() not in seen:
+            seen.add(content.lower())
+            result.append(content)
+    return result
+
+
+def _parse_metadata_pool(af15):
+    """Parse AF15 JSON string. Return dict (empty kalau kosong) atau None on error."""
+    s = (af15 or "").strip()
+    if not s:
+        return {}
+    try:
+        data = json.loads(s)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _build_lookup_spec(tokens, metadata_pool):
+    """Bangun list lookup spec dari template + METADATA_POOL.
+    Return list of dicts: [{"key", "key_lower", "options"}, ...]
+    """
+    keys = _extract_lookup_keys(tokens)
+    result = []
+    for k in keys:
+        options = []
+        if isinstance(metadata_pool, dict):
+            for pool_key, pool_val in metadata_pool.items():
+                if pool_key.lower() == k.lower() and isinstance(pool_val, list):
+                    options = [str(v) for v in pool_val]
+                    break
+        result.append({
+            "key": k,
+            "key_lower": k.lower(),
+            "options": options,
+        })
+    return result
+
+
+def _calc_isi_budget(tokens, lookup_spec, kode, char_limit, lower=100):
+    """Hitung ISI min/max chars supaya FULL assembled title fit [lower, char_limit].
+
+    Untuk lookup tokens, pakai MAX option length (konservatif — biar kalau Gemini
+    pilih value terpanjang, title masih fit).
+    """
+    # Build dict: key_lower -> max option length (or len('Unknown') as fallback)
+    lookup_max = {}
+    for spec in lookup_spec:
+        opts = spec["options"]
+        if opts:
+            max_len = max(len(o) for o in opts)
+        else:
+            max_len = len("Unknown")
+        # Always at least len("Unknown") in case Gemini falls back to "Unknown"
+        lookup_max[spec["key_lower"]] = max(max_len, len("Unknown"))
+
+    fixed_len = 0
+    for type_, content in tokens:
+        if type_ == "literal":
+            fixed_len += len(content)
+        elif type_ == "kode":
+            fixed_len += len(kode or "")
+        elif type_ == "lookup":
+            fixed_len += lookup_max.get(content.lower(), len("Unknown"))
+        # 'isi' tidak dihitung — itu yang kita budget-kan
+
+    safety = 5
+    isi_max = max(20, char_limit - fixed_len - safety)
+    isi_min = max(20, lower - fixed_len)
+    # Sanity: kalau template literal/lookup udah makan hampir semua char_limit,
+    # ISI budget bisa nyentuh atau lewat min. Pastikan max > min.
+    if isi_max < isi_min:
+        isi_max = isi_min + 20
+    return isi_min, isi_max
+
+
+def _assemble_title(tokens, lookup_values, isi, kode):
+    """Build final title string from parsed tokens + provided values.
+
+    lookup_values: dict {key_lower -> value_string}
+    isi:           string (AI-generated body)
+    kode:          string (listing code)
+
+    Missing lookup key → 'Unknown' fallback.
+    """
+    parts = []
+    for type_, content in tokens:
+        if type_ == "literal":
+            parts.append(content)
+        elif type_ == "isi":
+            parts.append(isi or "")
+        elif type_ == "kode":
+            parts.append(kode or "")
+        elif type_ == "lookup":
+            parts.append(lookup_values.get(content.lower(), "Unknown"))
+    return "".join(parts)
+
+
+def _build_lookup_keys_spec_text(lookup_spec):
+    """Bangun text spec lookup keys untuk prompt (human-readable list)."""
+    if not lookup_spec:
+        return "(none — template has no dynamic lookup tokens)"
+    lines = []
+    for spec in lookup_spec:
+        opts = spec["options"]
+        if opts:
+            opts_str = ", ".join(f'"{o}"' for o in opts)
+            lines.append(
+                f'- "lookup_{spec["key_lower"]}" (template key: "{spec["key"]}")\n'
+                f'    Options: [{opts_str}]\n'
+                f'    Or "Unknown" if not determinable from screenshots.'
+            )
+        else:
+            lines.append(
+                f'- "lookup_{spec["key_lower"]}" (template key: "{spec["key"]}")\n'
+                f'    No options found in METADATA_POOL for this key.\n'
+                f'    Output "Unknown".'
+            )
+    return "\n".join(lines)
+
+
+def _build_lookup_keys_json_template(lookup_spec):
+    """Bangun JSON schema sketch untuk lookup keys (untuk prompt example)."""
+    if not lookup_spec:
+        return ""
+    lines = []
+    for spec in lookup_spec:
+        opts = spec["options"]
+        sample = opts[0] if opts else "Unknown"
+        lines.append(f'      "lookup_{spec["key_lower"]}": "{sample}",')
+    return "\n".join(lines)
+
+
+def _parse_gemini_json_output(text):
+    """Parse Gemini response yang seharusnya JSON.
+    Robust: handle markdown code fence, trailing text, leading text.
+    Return parsed dict atau None.
+    """
+    if not text:
+        return None
+    s = text.strip()
+    # Strip markdown fence kalau ada (```json ... ``` atau ``` ... ```)
+    if s.startswith("```"):
+        # Cari blok kode pertama
+        m = re.search(r"```(?:json)?\s*(.+?)\s*```", s, re.DOTALL)
+        if m:
+            s = m.group(1).strip()
+    # Cari object JSON pertama (cari kurung kurawal pembuka pertama)
+    start = s.find("{")
+    if start == -1:
+        return None
+    # Coba parse dari posisi itu. Kalau gagal, coba slice ulang ke matching brace.
+    candidates = [s[start:]]
+    # Tambahkan: slice ke last matching closing brace
+    end = s.rfind("}")
+    if end > start:
+        candidates.append(s[start:end + 1])
+    for cand in candidates:
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _validate_variant_data(variant, lookup_spec):
+    """Validate satu variant dict dari Gemini output.
+    Return (is_valid, error_message_or_None).
+    Required fields: 'isi' + setiap 'lookup_{key_lower}'.
+    """
+    if not isinstance(variant, dict):
+        return False, "variant bukan dict"
+    if "isi" not in variant or not isinstance(variant["isi"], str):
+        return False, "'isi' missing atau bukan string"
+    for spec in lookup_spec:
+        field = f"lookup_{spec['key_lower']}"
+        if field not in variant:
+            return False, f"'{field}' missing"
+        val = variant[field]
+        if not isinstance(val, str):
+            return False, f"'{field}' bukan string"
+        # Force value to be from options or "Unknown"
+        if spec["options"] and val.lower() != "unknown":
+            valid_lower = {o.lower() for o in spec["options"]}
+            if val.lower() not in valid_lower:
+                # Tidak valid — caller bisa decide trim ke Unknown
+                pass  # accept dulu, caller force ke Unknown
+    return True, None
+
+
+def _normalize_lookup_value(value, options):
+    """Normalize lookup value: kalau ada di options (case-insensitive), kembalikan
+    versi original-case dari options. Kalau ndak, return "Unknown"."""
+    if not value or not isinstance(value, str):
+        return "Unknown"
+    v = value.strip()
+    if not v or v.lower() == "unknown":
+        return "Unknown"
+    if not options:
+        return "Unknown"
+    v_lower = v.lower()
+    for opt in options:
+        if opt.lower() == v_lower:
+            return opt  # case preserved from options list
+    return "Unknown"
+
+
+# ===================== CHAR-LIMIT ENFORCE (Python-side) =====================
 def _resolve_char_limit(af3_value):
     """Parse AF3 ke int. Fallback CHAR_LIMIT_DEFAULT kalau invalid / out of bounds."""
     try:
@@ -429,211 +698,37 @@ def _resolve_char_limit(af3_value):
     return n
 
 
-def _parse_titles(text):
-    """Split Gemini response jadi list non-empty title lines."""
-    return [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-
-
-def _split_titles_by_bounds(titles, lower, upper):
-    """Return (good_idx, over_items, under_items).
-
-    good_idx     : list of int (idx yg lower <= len <= upper).
-    over_items   : list of (idx, text, length) yg len > upper.
-    under_items  : list of (idx, text, length) yg len < lower.
-
-    Safety: kalau lower >= upper (config edge case), disable lower-bound check
-    (anything <= upper jadi good). Cegah loop forever di config ekstrim.
+def _trim_isi_to_fit(isi, target_max_chars):
+    """Truncate ISI ke <= target_max_chars, prefer word boundary.
+    Cari last separator (spasi/koma/dll) dalam 70% terakhir. Fallback hard cut.
     """
-    if lower >= upper:
-        lower = 0
-    good = []
-    over = []
-    under = []
-    for i, t in enumerate(titles):
-        ln = len(t)
-        if ln > upper:
-            over.append((i, t, ln))
-        elif ln < lower:
-            under.append((i, t, ln))
-        else:
-            good.append(i)
-    return good, over, under
-
-
-def _load_trim_prompt_template():
-    """Load prompt_title_trim.txt setiap call (hot-reload, user bisa edit
-    on-the-fly). Resolve path: next-to-exe -> _MEIPASS bundle.
-    Return string atau None kalau file missing/error.
-    """
-    path = _resolve_trim_prompt_path()
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        add_log(f"prompt_title_trim.txt missing di {path}")
-        return None
-    except Exception as e:
-        add_log(f"Gagal load prompt_title_trim.txt: {str(e)[:150]}")
-        return None
-
-
-def _build_trim_prompt(template, bad_items, char_limit, kode, game_name):
-    """Substitusi placeholder di template prompt trim:
-      {{hasil_bot_jika_terdapat_title_lebih_dariAF3}} -> RAW_TITLES block
-                                                          (1 line per judul over,
-                                                          tanpa [N chars] label)
-      [sheets-AF3]   -> int limit (char limit)
-      [sheets-A51:A] -> kode listing (mandatory suffix dynamic)
-      [sheets-AF2]   -> game name
-    """
-    raw_block = "\n".join(t for _, t, _ in bad_items)
-    return (
-        template
-        .replace("{{hasil_bot_jika_terdapat_title_lebih_dariAF3}}", raw_block)
-        .replace("[sheets-AF3]",   str(char_limit))
-        .replace("[sheets-A51:A]", str(kode))
-        .replace("[sheets-AF2]",   str(game_name))
-    )
-
-
-def _call_gemini_trim(bad_items, char_limit, kode, game_name):
-    """Text-only Gemini call: kirim N line over-limit + minta trim ke <= limit.
-    Pakai template di prompt_title_trim.txt (user-editable, hot-reload).
-    Return list trimmed lines (sequence-aligned dgn input bad_items).
-    """
-    if gemini_model is None:
-        raise RuntimeError("Gemini model belum siap")
-
-    template = _load_trim_prompt_template()
-    if template is None:
-        raise RuntimeError("prompt_title_trim.txt missing")
-
-    trim_prompt = _build_trim_prompt(template, bad_items, char_limit, kode, game_name)
-    response = gemini_model.generate_content(trim_prompt)
-    text = (response.text or "").strip()
-    return _parse_titles(text)
-
-
-def _enforce_char_limit(initial_text, char_limit, kode, game_name):
-    """Loop: parse -> validate bounds [CHAR_LIMIT_LOWER, char_limit] -> retry
-    via Gemini text call. Max TRIM_MAX_RETRIES putaran.
-
-    Retry input strategy:
-      - OVER  (len > char_limit): kirim CURRENT text (incremental shrink).
-      - UNDER (len < CHAR_LIMIT_LOWER): kirim ORIGINAL pre-trim text
-        (current udah terlalu compressed, ndak ada material buat di-expand;
-        original adalah snapshot Gemini main-call output).
-
-    Final: line yg masih out-of-bounds setelah max retries di-prefix "❌ "
-    di output (visual indicator, J cell tetap terisi -> trigger AL off).
-
-    Return (final_text_joined, stats_dict).
-    """
-    titles = _parse_titles(initial_text)
-    original = list(titles)  # snapshot for UNDER retry input
-    total = len(titles)
-
-    _, over_init, under_init = _split_titles_by_bounds(
-        titles, CHAR_LIMIT_LOWER, char_limit
-    )
-    over_init_count = len(over_init)
-    under_init_count = len(under_init)
-    retries = 0
-
-    while retries < TRIM_MAX_RETRIES:
-        _, over_items, under_items = _split_titles_by_bounds(
-            titles, CHAR_LIMIT_LOWER, char_limit
-        )
-        if not over_items and not under_items:
-            break  # all in bounds
-
-        # Build retry payload:
-        # OVER  -> kirim current text (yg sudah di-trim sebelumnya, lanjut shrink)
-        # UNDER -> kirim ORIGINAL pre-trim text (re-do dari Gemini initial output)
-        retry_inputs = []
-        for idx, t, ln in over_items:
-            retry_inputs.append((idx, t, ln))
-        for idx, _, _ in under_items:
-            orig = original[idx]
-            retry_inputs.append((idx, orig, len(orig)))
-        # Sort by idx supaya output Gemini line-aligned dgn bad index urutan.
-        retry_inputs.sort(key=lambda x: x[0])
-
-        bounds_msg = []
-        if over_items:
-            over_lens = ', '.join(str(ln) for _, _, ln in over_items)
-            bounds_msg.append(f"{len(over_items)} over {char_limit} ({over_lens})")
-        if under_items:
-            under_lens = ', '.join(str(ln) for _, _, ln in under_items)
-            bounds_msg.append(f"{len(under_items)} under {CHAR_LIMIT_LOWER} ({under_lens})")
-        add_log(
-            f"Trim retry {retries+1}/{TRIM_MAX_RETRIES}: " + "; ".join(bounds_msg)
-        )
-
-        try:
-            trimmed = call_with_timeout(
-                _call_gemini_trim,
-                args=(retry_inputs, char_limit, kode, game_name),
-                timeout=TRIM_TIMEOUT, name="gemini_trim",
-            )
-        except TimeoutHangError:
-            add_log(f"Trim retry timeout >{TRIM_TIMEOUT}s, abort retry loop")
-            break
-        except Exception as e:
-            add_log(f"Trim retry error: {str(e)[:120]}")
-            break
-
-        if not trimmed:
-            add_log("Trim retry balikin kosong, abort retry loop")
-            break
-
-        # Replace bad lines dgn trimmed (positional, sequence-aligned dgn input).
-        # Kalau Gemini balikin lebih sedikit, sisa bad lines tetap apa adanya
-        # (akan di-validate ulang iterasi berikutnya).
-        new_titles = list(titles)
-        for j, (idx, _, _) in enumerate(retry_inputs):
-            if j < len(trimmed):
-                new_titles[idx] = trimmed[j]
-        titles = new_titles
-        retries += 1
-
-    # Final validation
-    _, over_final, under_final = _split_titles_by_bounds(
-        titles, CHAR_LIMIT_LOWER, char_limit
-    )
-    final_bad_idx = set()
-    for idx, _, _ in over_final:
-        final_bad_idx.add(idx)
-    for idx, _, _ in under_final:
-        final_bad_idx.add(idx)
-
-    # Build output: prefix "❌ " ke line yg masih out-of-bounds
-    output_lines = []
-    for i, t in enumerate(titles):
-        if i in final_bad_idx:
-            output_lines.append(f"❌ {t}")
-        else:
-            output_lines.append(t)
-
-    stats = {
-        "total":       total,
-        "over_init":   over_init_count,
-        "under_init":  under_init_count,
-        "retries":     retries,
-        "still_over":  len(over_final),
-        "still_under": len(under_final),
-        "final_bad":   len(final_bad_idx),
-        "lengths":     [len(t) for t in titles],
-    }
-    return "\n".join(output_lines), stats
+    if len(isi) <= target_max_chars:
+        return isi
+    cut = isi[:target_max_chars]
+    backstop = int(target_max_chars * 0.6)
+    for sep in (" ", ",", ";", "/"):
+        idx = cut.rfind(sep)
+        if idx >= backstop:
+            return cut[:idx].rstrip(" ,;|/")
+    return cut.rstrip(" ,;|/")
 
 
 # ===================== MAIN ENTRY =====================
 def run_one_cycle(ctx):
     """1 cycle: scan LINK!F -> proses max 1 row PERLU TITLE.
 
+    Architecture v3 (post-2026-05-15): TEMPLATE-ONLY mode.
+    - AF16 (Title Template) WAJIB di-isi. Kalau kosong: row di-skip dengan
+      error message di J cell. Free-form mode dihapus (structural drift terlalu
+      tinggi di model Flash thinking).
+    - Python parse AF16 jadi tokens, kirim Gemini STRUCTURED REQUEST (JSON):
+      AI extract lookup values (Server / Rank / etc) + compose ISI body.
+    - Python ASSEMBLE final title dari tokens + Gemini output. Zero structural
+      drift (Python deterministic).
+    - ISI length auto-trim (word-boundary) kalau full assembled title > AF3.
+
     Return:
-      1 -> ada row diproses (sukses ATAU gagal-with-error-tertulis ke J).
+      1 -> ada row diproses (sukses, error message ditulis ke J, atau af16 kosong).
       0 -> idle / toggle OFF / stop_event / Sheets error / no trigger ditemukan.
     """
     if ctx.stop_event.is_set():
@@ -679,6 +774,49 @@ def run_one_cycle(ctx):
         add_log(f"Baris {baris}: AF2 (GAME_NAME) kosong, skip")
         return 0
 
+    # ===== AF16 mandatory check (template-only architecture) =====
+    af16_raw = data.get("af16") or ""
+    af16_preview = af16_raw[:80] if af16_raw else "(empty)"
+    add_log(f"AF16 raw: '{af16_preview}' (len={len(af16_raw)})")
+    if not af16_raw.strip():
+        msg = ("❌ AF16 (Title Template) belum di-set di tab ini. Bot_title v3 "
+               "wajib pakai template — isi AF16 dengan string seperti "
+               "'{Server}|{ISI}|TakeMail({KODE})'.")
+        add_log(msg)
+        try:
+            safe_update_cell(sheet, baris, KOLOM_OUTPUT, msg, desc=f"af16_err_J{baris}")
+        except Exception as e:
+            add_log(f"Gagal write error J{baris}: {str(e)[:120]}")
+        update_stats(tab_name, success=False)
+        return 1
+
+    # ===== Parse template + metadata =====
+    tokens = _parse_template(af16_raw)
+    lookup_keys_in_template = _extract_lookup_keys(tokens)
+    metadata_pool = _parse_metadata_pool(data["af15"])
+    if metadata_pool is None:
+        msg = "❌ AF15 (METADATA_POOL) bukan JSON valid. Cek format JSON-nya di sheet."
+        add_log(msg)
+        try:
+            safe_update_cell(sheet, baris, KOLOM_OUTPUT, msg, desc=f"af15_err_J{baris}")
+        except Exception:
+            pass
+        update_stats(tab_name, success=False)
+        return 1
+
+    lookup_spec = _build_lookup_spec(tokens, metadata_pool)
+    char_limit = _resolve_char_limit(data["af3"])
+    try:
+        variants_count = max(1, min(10, int(float(str(data["af4"]).strip()))))
+    except (ValueError, TypeError):
+        variants_count = 1
+    isi_min, isi_max = _calc_isi_budget(
+        tokens, lookup_spec, data["kode"], char_limit, CHAR_LIMIT_LOWER
+    )
+
+    add_log(f"Tokens: {len(tokens)} (lookup keys: {lookup_keys_in_template or 'none'})")
+    add_log(f"ISI budget: {isi_min}-{isi_max} chars, variants: {variants_count}, char_limit: {char_limit}")
+
     set_processing({"sheet_name": tab_name, "row": baris})
     with worker_status_lock:
         worker_status[1] = {
@@ -696,14 +834,14 @@ def run_one_cycle(ctx):
 
     image_paths = []
     err_msg     = None
-    result_text = None
+    final_text  = None
+    success     = False
     t_start     = time.time()
 
     try:
         # ===== STEP 2: Download images =====
         def _do_download():
             return download_images_with_urls(data["gambar_url"], MAX_IMAGES)
-
         try:
             paths, _, _ = call_with_timeout(
                 _do_download, timeout=DOWNLOAD_TIMEOUT, name="download_images"
@@ -712,28 +850,25 @@ def run_one_cycle(ctx):
             raise RuntimeError(f"Download images timeout (>{DOWNLOAD_TIMEOUT}s)")
         except Exception as e:
             raise RuntimeError(f"Download gagal: {str(e)[:120]}")
-
         if not paths:
             raise RuntimeError("Gambar tidak bisa di download")
-
         image_paths = paths
         add_log(f"Download selesai: {len(paths)} images")
 
-        # ===== STEP 3: Load + build prompt =====
+        # ===== STEP 3: Build structured prompt =====
         template = _load_prompt_template()
         if template is None:
-            raise RuntimeError("prompt_title.txt missing")
-        prompt = _build_prompt(template, data)
+            raise RuntimeError("prompt_title_template.txt missing")
+        prompt = _build_prompt(template, data, lookup_spec, isi_min, isi_max, variants_count)
 
-        # ===== STEP 4: Gemini call (cap by remaining budget) =====
+        # ===== STEP 4: Gemini call (multimodal) =====
         elapsed = time.time() - t_start
         remaining = ROW_TIMEOUT - elapsed
         if remaining < 10:
             raise RuntimeError(f"Sisa waktu {remaining:.1f}s < 10s, abort sebelum Gemini")
         gemini_cap = min(GEMINI_TIMEOUT, max(10, int(remaining)))
-
         try:
-            result_text = call_with_timeout(
+            response_text = call_with_timeout(
                 _call_gemini_with_images,
                 args=(prompt, image_paths),
                 timeout=gemini_cap, name="gemini_call",
@@ -742,47 +877,83 @@ def run_one_cycle(ctx):
             raise RuntimeError(f"Gemini timeout (>{gemini_cap}s)")
         except Exception as e:
             raise RuntimeError(f"Gemini error: {str(e)[:120]}")
-
-        if not result_text:
+        if not response_text:
             raise RuntimeError("Gemini response kosong")
 
-        # ===== STEP 4.5: Enforce char bounds [LOWER..AF3] per judul =====
-        # Split per line, retry via Gemini text-only call (hemat, ndak re-send images).
-        # OVER -> retry pakai current text. UNDER -> retry pakai original pre-trim.
-        char_limit = _resolve_char_limit(data["af3"])
-        result_text, trim_stats = _enforce_char_limit(
-            result_text, char_limit, data["kode"], data["af2"]
-        )
-        if trim_stats["over_init"] > 0 or trim_stats["under_init"] > 0:
-            lengths = trim_stats["lengths"]
-            len_summary = (
-                f"{min(lengths)}-{max(lengths)}" if lengths else "0"
+        # ===== STEP 5: Parse JSON output =====
+        parsed = _parse_gemini_json_output(response_text)
+        if parsed is None:
+            add_log(f"Gemini raw output: {response_text[:300]}")
+            raise RuntimeError("Gemini output bukan JSON valid")
+        variants = parsed.get("variants")
+        if not isinstance(variants, list) or len(variants) == 0:
+            raise RuntimeError(
+                f"JSON 'variants' missing atau kosong (got: {type(variants).__name__})"
             )
-            add_log(
-                f"Char bounds [{CHAR_LIMIT_LOWER}-{char_limit}]: "
-                f"{trim_stats['total']} judul, init over={trim_stats['over_init']} "
-                f"under={trim_stats['under_init']} -> {trim_stats['retries']} retry, "
-                f"sisa over={trim_stats['still_over']} under={trim_stats['still_under']}, "
-                f"len final: {len_summary}"
-            )
-            if trim_stats["final_bad"] > 0:
-                add_log(
-                    f"⚠ {trim_stats['final_bad']} judul masih out-of-bounds "
-                    f"setelah {trim_stats['retries']} retry → prefix ❌ di J cell"
+
+        # ===== STEP 6: Assemble each variant deterministically =====
+        final_titles = []
+        n_trimmed = 0
+        n_still_bad = 0
+        for i in range(variants_count):
+            if i >= len(variants):
+                final_titles.append(f"❌ Variant {i+1}: Gemini ndak return data")
+                n_still_bad += 1
+                continue
+            vd = variants[i]
+            ok, err = _validate_variant_data(vd, lookup_spec)
+            if not ok:
+                final_titles.append(f"❌ Variant {i+1} invalid: {err}")
+                n_still_bad += 1
+                continue
+
+            lookup_values = {}
+            for spec in lookup_spec:
+                raw_val = vd.get(f"lookup_{spec['key_lower']}", "Unknown")
+                lookup_values[spec["key_lower"]] = _normalize_lookup_value(
+                    raw_val, spec["options"]
                 )
+            isi = str(vd.get("isi", "")).strip()
+
+            title = _assemble_title(tokens, lookup_values, isi, data["kode"])
+
+            # Auto-trim ISI kalau over char_limit (word-boundary truncation)
+            if len(title) > char_limit:
+                over_by = len(title) - char_limit
+                target_isi_len = max(20, len(isi) - over_by)
+                trimmed_isi = _trim_isi_to_fit(isi, target_isi_len)
+                new_title = _assemble_title(tokens, lookup_values, trimmed_isi, data["kode"])
+                add_log(
+                    f"Variant {i+1} auto-trim ISI: {len(isi)}→{len(trimmed_isi)} "
+                    f"(title {len(title)}→{len(new_title)})"
+                )
+                title = new_title
+                n_trimmed += 1
+
+            if len(title) > char_limit or len(title) < CHAR_LIMIT_LOWER:
+                final_titles.append(f"❌ {title}")
+                n_still_bad += 1
+            else:
+                final_titles.append(title)
+
+        final_text = "\n".join(final_titles)
+        success = True
+
+        lengths = [len(t) for t in final_titles]
+        add_log(
+            f"Assembled {len(final_titles)} variants, lengths: {lengths}, "
+            f"auto-trim: {n_trimmed}, still bad: {n_still_bad}"
+        )
 
     except Exception as e:
         err_msg = str(e)[:200]
 
-    # ===== STEP 5: Tulis hasil ke J{n} =====
+    # ===== STEP 7: Tulis hasil ke J{n} =====
     elapsed_total = time.time() - t_start
     if err_msg:
         final_text = f"❌ {err_msg}"
-        success    = False
+        success = False
         add_log(f"❌ [{tab_name}] {data['kode']} | {err_msg} ({elapsed_total:.1f}s)")
-    else:
-        final_text = result_text
-        success    = True
 
     try:
         safe_update_cell(sheet, baris, KOLOM_OUTPUT, final_text, desc=f"write_J{baris}")
@@ -797,7 +968,7 @@ def run_one_cycle(ctx):
         pass
 
     if success:
-        n_lines = len([ln for ln in (result_text or "").splitlines() if ln.strip()])
+        n_lines = len([ln for ln in (final_text or "").splitlines() if ln.strip()])
         add_log(f"✅ [{tab_name}] {data['kode']} berhasil generate {n_lines} title variants ({elapsed_total:.1f}s)")
 
     set_processing(None)
