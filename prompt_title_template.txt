@@ -7,7 +7,6 @@ ACCURATE on facts and DENSE on content. Structure is handled by code.
 
 <context>
 - GAME_NAME: [sheets-AF2]
-- LISTING_CODE: [sheets-A51:A]
 - VARIANTS_REQUESTED: [VARIANTS_REQUESTED]
 - ISI_MIN_CHARS: [ISI_MIN_CHARS]
 - ISI_MAX_CHARS: [ISI_MAX_CHARS]
@@ -15,6 +14,9 @@ ACCURATE on facts and DENSE on content. Structure is handled by code.
 - REFERENCE_TITLES (style examples, may be empty):
 [sheets-AF5:AF14]
 </context>
+
+NOTE: You do not see the listing code or the title template. Those are handled
+by Python at assembly time. Your only output is JSON (see <output_format>).
 
 <lookup_keys>
 For each LOOKUP KEY below, determine its value by inspecting the screenshots:
@@ -69,11 +71,17 @@ Rules for lookup values:
 5. NO MARKETING FLUFF: no "Amazing", "Best", "Godly", "Insane", "Cheap",
    "Must Buy", "Rare", "OP" — let facts speak.
 6. Do NOT use GAME_NAME, its abbreviations, or partial names inside "isi".
-7. "isi" must NOT contain pipes "|", parentheses "()" around the listing code,
-   or any structural separators that the template will add. Those are added by
-   code during assembly. Inside "isi" you may use commas, dashes, normal
-   parens around names (e.g. "Genshin (NA)"), as long as the final assembled
-   title remains readable.
+7. "isi" must contain ONLY descriptive content — characters, levels, items,
+   currencies, achievements, etc. It must NOT contain:
+   - Any reference to the listing code or account ID.
+   - Structural separators (pipes "|", brackets "[]", trailing parens around
+     codes) that look like template literals.
+   - Repeated copies of lookup values you already output in the "lookup_*"
+     fields (e.g. don't put server name inside "isi" — it's already in
+     "lookup_server").
+   Inside "isi" you MAY use commas, slashes, dashes, and normal parens around
+   feature names (e.g. "Hu Tao (C2)", "Hydro/Pyro DPS"), as long as those
+   don't look like template structural literals.
 </hard_rules>
 
 <output_format>
