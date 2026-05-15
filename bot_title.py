@@ -278,23 +278,28 @@ def _find_first_trigger_row(tab_name):
 
 
 def _read_row_context(tab_name, baris):
-    """1 batch_get (3 ranges): A{n} + I{n} + AF2:AF16. Return dict atau None.
+    """1 batch_get (4 ranges): A{n} + I{n} + AF2:AF26 + O45. Return dict atau None.
 
-    Mapping placeholder prompt:
-      [sheets-A51]      -> A{n}                  (kode listing, MANDATORY_SUFFIX)
-      [sheets-AF2]      -> AF2                   (GAME_NAME)
-      [sheets-AF3]      -> AF3                   (CHAR_LIMIT)
-      [sheets-AF4]      -> AF4                   (TARGET_VARIANTS)
-      [sheets-AF5:AF14] -> AF5..AF14 join \\n    (REFERENCE_TITLES)
-      [sheets-AF15]     -> AF15                  (METADATA_POOL JSON)
-      [sheets-AF16]     -> AF16                  (TITLE_TEMPLATE, opsional;
-                                                  kosong -> AI free-form mode)
+    Sheet schema v3.1 (updated 2026-05-15):
+      A{n}              -> kode listing (MANDATORY_SUFFIX, dynamic per row)
+      I{n}              -> URL gambar (kolom I)
+      AF2               -> GAME_NAME
+      AF3               -> CHAR_LIMIT
+      AF4               -> TARGET_VARIANTS
+      AF5               -> TITLE_TEMPLATE  (was AF16 in v3.0)
+      AF6..AF26         -> REFERENCE_TITLES, up to 21 slots (was AF5..AF14 in v3.0)
+      O45               -> METADATA_POOL JSON (was AF15 in v3.0)
+
+    Return keys:
+      kode, gambar_url, af2, af3, af4,
+      template (AF5), references (list AF6..AF26 non-empty), metadata_pool (O45 raw)
     """
     try:
         ranges = [
             f"'{tab_name}'!A{baris}",
             f"'{tab_name}'!I{baris}",
-            f"'{tab_name}'!AF2:AF16",
+            f"'{tab_name}'!AF2:AF26",
+            f"'{tab_name}'!O45",
         ]
         resp = spreadsheet_client.values_batch_get(ranges=ranges)
         vranges = resp.get("valueRanges", []) or []
@@ -314,7 +319,7 @@ def _read_row_context(tab_name, baris):
     af_values = vranges[2].get("values", []) if len(vranges) >= 3 else []
 
     def _af(rownum):
-        # AF2 -> idx 0, AF3 -> idx 1, ..., AF16 -> idx 14
+        # AF2 -> idx 0, AF3 -> idx 1, ..., AF26 -> idx 24
         idx = rownum - 2
         try:
             row = af_values[idx]
@@ -322,16 +327,16 @@ def _read_row_context(tab_name, baris):
         except IndexError:
             return ""
 
-    af2  = _af(2)
-    af3  = _af(3)
-    af4  = _af(4)
-    af15 = _af(15)
-    af16 = _af(16)
-    af5_14 = []
-    for n in range(5, 15):
+    af2 = _af(2)
+    af3 = _af(3)
+    af4 = _af(4)
+    template = _af(5)                              # AF5 = title template (was AF16)
+    references = []
+    for n in range(6, 27):                         # AF6..AF26 = up to 21 references
         v = _af(n)
         if v:
-            af5_14.append(v)
+            references.append(v)
+    metadata_pool = str(_single(3)).strip()        # O45 = metadata JSON (was AF15)
 
     return {
         "kode": kode,
@@ -339,9 +344,9 @@ def _read_row_context(tab_name, baris):
         "af2": af2,
         "af3": af3,
         "af4": af4,
-        "af5_14": af5_14,
-        "af15": af15,
-        "af16": af16,
+        "template": template,
+        "references": references,
+        "metadata_pool": metadata_pool,
     }
 
 
@@ -369,14 +374,14 @@ def _load_prompt_template():
 def _build_prompt(template, data, lookup_spec, isi_min, isi_max, variants_count):
     """Substitusi semua placeholder di prompt template.
 
-    Static placeholders (dari sheet):
-      [sheets-AF2]      -> GAME_NAME
-      [sheets-AF3]      -> CHAR_LIMIT (full title)
-      [sheets-AF4]      -> TARGET_VARIANTS (legacy, sekarang pakai [VARIANTS_REQUESTED])
-      [sheets-AF5:AF14] -> REFERENCE_TITLES joined newline
-      [sheets-AF15]     -> METADATA_POOL raw JSON string
-      [sheets-A51:A]    -> LISTING_CODE (kode listing dari kolom A row diproses)
-      [sheets-A51]      -> alias legacy
+    Static placeholders (dari sheet, v3.1 schema):
+      [sheets-AF2]       -> GAME_NAME
+      [sheets-AF3]       -> CHAR_LIMIT (full title)
+      [sheets-AF4]       -> TARGET_VARIANTS (legacy, sekarang pakai [VARIANTS_REQUESTED])
+      [sheets-AF6:AF26]  -> REFERENCE_TITLES joined newline (was AF5:AF14)
+      [sheets-O45]       -> METADATA_POOL raw JSON string (was AF15)
+
+    Listing code & template are NOT exposed to AI (Python handles both at assembly).
 
     Dynamic placeholders (computed per row):
       [VARIANTS_REQUESTED]         -> int, harus exact
@@ -385,16 +390,14 @@ def _build_prompt(template, data, lookup_spec, isi_min, isi_max, variants_count)
       [LOOKUP_KEYS_SPEC]           -> human-readable spec semua lookup keys
       [LOOKUP_KEYS_JSON_TEMPLATE]  -> JSON skeleton lines untuk output_format
     """
-    af5_14_joined = "\n".join(data["af5_14"]) if data["af5_14"] else "(empty)"
+    refs_joined = "\n".join(data["references"]) if data["references"] else "(empty)"
     return (
         template
         .replace("[sheets-AF2]", data["af2"])
         .replace("[sheets-AF3]", data["af3"])
         .replace("[sheets-AF4]", str(variants_count))
-        .replace("[sheets-AF5:AF14]", af5_14_joined)
-        .replace("[sheets-AF15]", data["af15"])
-        .replace("[sheets-A51:A]", data["kode"])
-        .replace("[sheets-A51]",   data["kode"])
+        .replace("[sheets-AF6:AF26]", refs_joined)
+        .replace("[sheets-O45]", data["metadata_pool"])
         .replace("[VARIANTS_REQUESTED]", str(variants_count))
         .replace("[ISI_MIN_CHARS]", str(isi_min))
         .replace("[ISI_MAX_CHARS]", str(isi_max))
@@ -774,31 +777,31 @@ def run_one_cycle(ctx):
         add_log(f"Baris {baris}: AF2 (GAME_NAME) kosong, skip")
         return 0
 
-    # ===== AF16 mandatory check (template-only architecture) =====
-    af16_raw = data.get("af16") or ""
-    af16_preview = af16_raw[:80] if af16_raw else "(empty)"
-    add_log(f"AF16 raw: '{af16_preview}' (len={len(af16_raw)})")
-    if not af16_raw.strip():
-        msg = ("❌ AF16 (Title Template) belum di-set di tab ini. Bot_title v3 "
-               "wajib pakai template — isi AF16 dengan string seperti "
+    # ===== AF5 (TITLE_TEMPLATE) mandatory check =====
+    template_raw = data.get("template") or ""
+    template_preview = template_raw[:80] if template_raw else "(empty)"
+    add_log(f"AF5 template: '{template_preview}' (len={len(template_raw)})")
+    if not template_raw.strip():
+        msg = ("❌ AF5 (Title Template) belum di-set di tab ini. Bot_title v3 "
+               "wajib pakai template — isi AF5 dengan string seperti "
                "'{Server}|{ISI}|TakeMail({KODE})'.")
         add_log(msg)
         try:
-            safe_update_cell(sheet, baris, KOLOM_OUTPUT, msg, desc=f"af16_err_J{baris}")
+            safe_update_cell(sheet, baris, KOLOM_OUTPUT, msg, desc=f"template_err_J{baris}")
         except Exception as e:
             add_log(f"Gagal write error J{baris}: {str(e)[:120]}")
         update_stats(tab_name, success=False)
         return 1
 
-    # ===== Parse template + metadata =====
-    tokens = _parse_template(af16_raw)
+    # ===== Parse template + O45 metadata =====
+    tokens = _parse_template(template_raw)
     lookup_keys_in_template = _extract_lookup_keys(tokens)
-    metadata_pool = _parse_metadata_pool(data["af15"])
+    metadata_pool = _parse_metadata_pool(data["metadata_pool"])
     if metadata_pool is None:
-        msg = "❌ AF15 (METADATA_POOL) bukan JSON valid. Cek format JSON-nya di sheet."
+        msg = "❌ O45 (METADATA_POOL Options) bukan JSON valid. Cek format JSON-nya di sheet."
         add_log(msg)
         try:
-            safe_update_cell(sheet, baris, KOLOM_OUTPUT, msg, desc=f"af15_err_J{baris}")
+            safe_update_cell(sheet, baris, KOLOM_OUTPUT, msg, desc=f"o45_err_J{baris}")
         except Exception:
             pass
         update_stats(tab_name, success=False)

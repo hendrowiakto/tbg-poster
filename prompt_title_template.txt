@@ -10,9 +10,9 @@ ACCURATE on facts and DENSE on content. Structure is handled by code.
 - VARIANTS_REQUESTED: [VARIANTS_REQUESTED]
 - ISI_MIN_CHARS: [ISI_MIN_CHARS]
 - ISI_MAX_CHARS: [ISI_MAX_CHARS]
-- METADATA_POOL (full JSON, reference only): [sheets-AF15]
+- METADATA_POOL (full JSON, reference only): [sheets-O45]
 - REFERENCE_TITLES (style examples, may be empty):
-[sheets-AF5:AF14]
+[sheets-AF6:AF26]
 </context>
 
 NOTE: You do not see the listing code or the title template. Those are handled
