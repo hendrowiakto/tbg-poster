@@ -280,19 +280,21 @@ def _find_first_trigger_row(tab_name):
 def _read_row_context(tab_name, baris):
     """1 batch_get (4 ranges): A{n} + I{n} + AF2:AF26 + O45. Return dict atau None.
 
-    Sheet schema v3.1 (updated 2026-05-15):
+    Sheet schema v3.2 (updated 2026-05-15):
       A{n}              -> kode listing (MANDATORY_SUFFIX, dynamic per row)
       I{n}              -> URL gambar (kolom I)
       AF2               -> GAME_NAME
       AF3               -> CHAR_LIMIT
       AF4               -> TARGET_VARIANTS
-      AF5               -> TITLE_TEMPLATE  (was AF16 in v3.0)
-      AF6..AF26         -> REFERENCE_TITLES, up to 21 slots (was AF5..AF14 in v3.0)
-      O45               -> METADATA_POOL JSON (was AF15 in v3.0)
+      AF5               -> TITLE_TEMPLATE
+      AF6..AF25         -> REFERENCE_TITLES, 20 slots
+      AF26              -> FOCUS_PROMPT (opsional, user-defined ISI emphasis bias)
+      O45               -> METADATA_POOL JSON
 
     Return keys:
       kode, gambar_url, af2, af3, af4,
-      template (AF5), references (list AF6..AF26 non-empty), metadata_pool (O45 raw)
+      template (AF5), references (list AF6..AF25 non-empty),
+      focus_prompt (AF26 raw, optional), metadata_pool (O45 raw)
     """
     try:
         ranges = [
@@ -330,13 +332,14 @@ def _read_row_context(tab_name, baris):
     af2 = _af(2)
     af3 = _af(3)
     af4 = _af(4)
-    template = _af(5)                              # AF5 = title template (was AF16)
+    template = _af(5)                              # AF5 = title template
     references = []
-    for n in range(6, 27):                         # AF6..AF26 = up to 21 references
+    for n in range(6, 26):                         # AF6..AF25 = 20 reference slots
         v = _af(n)
         if v:
             references.append(v)
-    metadata_pool = str(_single(3)).strip()        # O45 = metadata JSON (was AF15)
+    focus_prompt = _af(26)                         # AF26 = optional ISI focus instruction
+    metadata_pool = str(_single(3)).strip()        # O45 = metadata JSON
 
     return {
         "kode": kode,
@@ -346,6 +349,7 @@ def _read_row_context(tab_name, baris):
         "af4": af4,
         "template": template,
         "references": references,
+        "focus_prompt": focus_prompt,
         "metadata_pool": metadata_pool,
     }
 
@@ -374,12 +378,13 @@ def _load_prompt_template():
 def _build_prompt(template, data, lookup_spec, isi_min, isi_max, variants_count):
     """Substitusi semua placeholder di prompt template.
 
-    Static placeholders (dari sheet, v3.1 schema):
+    Static placeholders (dari sheet, v3.2 schema):
       [sheets-AF2]       -> GAME_NAME
       [sheets-AF3]       -> CHAR_LIMIT (full title)
       [sheets-AF4]       -> TARGET_VARIANTS (legacy, sekarang pakai [VARIANTS_REQUESTED])
-      [sheets-AF6:AF26]  -> REFERENCE_TITLES joined newline (was AF5:AF14)
-      [sheets-O45]       -> METADATA_POOL raw JSON string (was AF15)
+      [sheets-AF6:AF25]  -> REFERENCE_TITLES joined newline (20 slots)
+      [sheets-AF26]      -> FOCUS_PROMPT (optional ISI emphasis instruction)
+      [sheets-O45]       -> METADATA_POOL raw JSON string
 
     Listing code & template are NOT exposed to AI (Python handles both at assembly).
 
@@ -391,12 +396,15 @@ def _build_prompt(template, data, lookup_spec, isi_min, isi_max, variants_count)
       [LOOKUP_KEYS_JSON_TEMPLATE]  -> JSON skeleton lines untuk output_format
     """
     refs_joined = "\n".join(data["references"]) if data["references"] else "(empty)"
+    focus = (data.get("focus_prompt") or "").strip()
+    focus_value = focus if focus else "(none — apply default standout prioritization)"
     return (
         template
         .replace("[sheets-AF2]", data["af2"])
         .replace("[sheets-AF3]", data["af3"])
         .replace("[sheets-AF4]", str(variants_count))
-        .replace("[sheets-AF6:AF26]", refs_joined)
+        .replace("[sheets-AF6:AF25]", refs_joined)
+        .replace("[sheets-AF26]", focus_value)
         .replace("[sheets-O45]", data["metadata_pool"])
         .replace("[VARIANTS_REQUESTED]", str(variants_count))
         .replace("[ISI_MIN_CHARS]", str(isi_min))

@@ -11,8 +11,10 @@ ACCURATE on facts and DENSE on content. Structure is handled by code.
 - ISI_MIN_CHARS: [ISI_MIN_CHARS]
 - ISI_MAX_CHARS: [ISI_MAX_CHARS]
 - METADATA_POOL (full JSON, reference only): [sheets-O45]
+- FOCUS_GUIDANCE (user-defined ISI emphasis, optional):
+[sheets-AF26]
 - REFERENCE_TITLES (style examples, may be empty):
-[sheets-AF6:AF26]
+[sheets-AF6:AF25]
 </context>
 
 NOTE: You do not see the listing code or the title template. Those are handled
@@ -46,6 +48,15 @@ Rules for lookup values:
    the strongest standout for that variant (limited/event-exclusive units,
    max-level rare units, top-tier currency stockpile, completed endgame, rare
    cosmetics).
+
+   FOCUS_GUIDANCE OVERRIDE: If FOCUS_GUIDANCE in <context> contains user
+   instructions (anything other than "(none ...)"), it OVERRIDES the default
+   standout ranking. Apply FOCUS_GUIDANCE as the primary instruction for what
+   to emphasize in "isi" across ALL variants. Example: if FOCUS_GUIDANCE says
+   "Focus on rare characters and their constellations", every variant's "isi"
+   should lead with character + constellation info, regardless of what else
+   exists in the screenshots. If FOCUS_GUIDANCE conflicts with default
+   standout logic, FOCUS_GUIDANCE wins.
 
 3. DENSITY: pack "isi" with real facts. Length MUST be between ISI_MIN_CHARS
    and ISI_MAX_CHARS characters. If short, ADD more high-value facts. If long,
