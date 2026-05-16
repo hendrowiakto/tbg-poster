@@ -359,11 +359,17 @@ def delete_listing_gm(kode_listing, manage_link):
             search_input.press("Enter")
             smart_wait(page, 3000, 5000)  # #3 - 3-5 detik
 
-            add_log("[GM] Klik icon sampah...")
-            delete_btn = page.locator("svg.text-red.cursor-pointer").first
-            delete_btn.wait_for(state="visible", timeout=10000)
-            delete_btn.click()
-            smart_wait(page, 1000, 2000)  # #4 - 1-2 detik
+            add_log("[GM] Klik tombol menu (ellipsis)...")
+            more_btn = page.locator("button:has(svg.lucide-ellipsis)").first
+            more_btn.wait_for(state="visible", timeout=10000)
+            more_btn.click()
+            smart_wait(page, 800, 1500)  # #4a - tunggu dropdown muncul
+
+            add_log("[GM] Klik menu Delete...")
+            menu_delete = page.locator("button:has(span.text-destructive-500:has-text('Delete'))").first
+            menu_delete.wait_for(state="visible", timeout=10000)
+            menu_delete.click()
+            smart_wait(page, 1000, 2000)  # #4b - tunggu modal konfirmasi
 
             add_log("[GM] Klik tombol konfirmasi Delete...")
             confirm_btn = page.locator("button:has-text('Delete'), button:has-text('Confirm'), button:has-text('Yes')").first
@@ -1213,7 +1219,7 @@ def run_one_cycle(ctx):
     0 kalau idle / toggle OFF / stop_event set / Sheets error.
     Orchestrator di main.py yang handle idle sleep + reconnect antar cycle
     (tidak lagi bot_loop di file ini - polling mode 2.2.5 digantikan oleh loop
-    sequential Delete->Create->Diskon di main.py)."""
+    sequential Delete->Create->Discount di main.py)."""
     _bind_ctx(ctx)
 
     if ctx.stop_event.is_set():

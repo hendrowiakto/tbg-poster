@@ -5,7 +5,7 @@ Satu aplikasi, 3 fungsi:
 
 - **DELETE** — hapus listing berdasarkan trigger `PERLU DELETE` di Google Sheets
 - **CREATE** — post listing baru berdasarkan trigger `PERLU POST`, dengan AI Gemini mapping dynamic form per game
-- **DISKON** — update harga listing berdasarkan trigger `PERLU DISCOUNT`
+- **DISCOUNT** — update harga listing berdasarkan trigger `PERLU DISCOUNT`
 
 Bot dikendalikan via Google Sheets sebagai single source of truth — user input data, bot auto-proses.
 
@@ -27,7 +27,7 @@ Bot dikendalikan via Google Sheets sebagai single source of truth — user input
   - [Orchestrator flow](#orchestrator-flow)
   - [Flow bot_delete](#flow-bot_delete)
   - [Flow bot_create](#flow-bot_create)
-  - [Flow bot_diskon](#flow-bot_diskon)
+  - [Flow bot_discount](#flow-bot_discount)
   - [Async image download](#async-image-download)
   - [Dev workflow — build & release](#dev-workflow--build--release)
   - [Troubleshooting developer](#troubleshooting-developer)
@@ -70,7 +70,7 @@ CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 CHROME_DEBUG_PORT=9222
 CHROME_USER_DATA_DIR=C:\chrome-debug
 GEMINI_API_KEY=AIza...   # API key Gemini (dari admin)
-DISKON_MAX_WORKER=5
+DISCOUNT_MAX_WORKER=5
 SHARED_POLLING_INTERVAL=60
 LOG_RETENTION_DAYS=120
 ```
@@ -82,7 +82,7 @@ LOG_RETENTION_DAYS=120
 Pertama kali jalan, bot akan:
 - Buka Chrome debug di port 9222 (tab login ke marketplace)
 - Connect ke Google Sheets
-- Tampilkan UI dengan 3 toggle (DELETE / CREATE / DISKON) + live log
+- Tampilkan UI dengan 3 toggle (DELETE / CREATE / DISCOUNT) + live log
 
 ### 5. Login marketplace (SEKALI)
 
@@ -117,7 +117,7 @@ Chrome profile tersimpan di folder `CHROME_USER_DATA_DIR` (default `C:\chrome-de
 |--------|--------|
 | **DELETE** | Hapus listing di marketplace saat row trigger `PERLU DELETE` |
 | **CREATE** | Post listing baru saat row trigger `PERLU POST` |
-| **DISKON** | Update harga listing saat row trigger `PERLU DISCOUNT` |
+| **DISCOUNT** | Update harga listing saat row trigger `PERLU DISCOUNT` |
 
 Toggle bisa di-OFF kalau mau skip sementara (misal lagi test create saja).
 
@@ -150,12 +150,12 @@ Toast format konten **per bot**:
 |-----|--------|-------|
 | **DELETE** | `✅ [GM] Listing AAA101 berhasil dihapus!` (full log line) | `❌ [GM] Gagal: <error>` (full log line) |
 | **CREATE** | `✅ [GM] ABC123 berhasil dipost 5 images uploaded!` (ringkas) | `❌ [GM] | <error>` (full line dari adapter) |
-| **DISKON** | `✅ [Worker 3] [GM] ABC123 berhasil diskon 6.99 > 5.99` (per market)<br>`Baris 51 selesai. AB: ✅ All Good | AC: 25/04/26 11:30` (summary) | `❌ [Worker 3] [GM] ABC123 tidak dapat diproses!` (per market)<br>`Baris 51 selesai. AB: ❌ Gagal Total | AC: ...` (summary) |
+| **DISCOUNT** | `✅ [Worker 3] [GM] ABC123 berhasil discount 6.99 > 5.99` (per market)<br>`Baris 51 selesai. AB: ✅ All Good | AC: 25/04/26 11:30` (summary) | `❌ [Worker 3] [GM] ABC123 tidak dapat diproses!` (per market)<br>`Baris 51 selesai. AB: ❌ Gagal Total | AC: ...` (summary) |
 
 **Catatan**: 
 - CREATE toast format ringkas ≠ K column format (K column tetap full dengan timestamp + listing URL)
-- DISKON per-market: 1 toast per market × N market aktif. Plus 1 summary toast di akhir cycle (kalau prefix mengandung ✅/❌ — `⚠️ Error Sebagian` ndak fire toast)
-- Worker prefix `[Worker N]` muncul di DISKON karena bot diskon multi-worker paralel
+- DISCOUNT per-market: 1 toast per market × N market aktif. Plus 1 summary toast di akhir cycle (kalau prefix mengandung ✅/❌ — `⚠️ Error Sebagian` ndak fire toast)
+- Worker prefix `[Worker N]` muncul di DISCOUNT karena bot discount multi-worker paralel
 
 ### Live Log
 
@@ -259,11 +259,11 @@ Kalau missing config, bot tampil popup error "Item berikut kurang" + list. Isi d
           ▼
 ┌─────────────────────────────────────────────────────────┐
 │            orchestrator_loop (main.py)                  │
-│  Priority sequential cycle: DELETE > CREATE > DISKON    │
+│  Priority sequential cycle: DELETE > CREATE > DISCOUNT    │
 │                                                         │
 │  While not stop:                                        │
 │   1. prescan_link()  (1 batch_get LINK!A+C+D+E)         │
-│   2. for bot in ["delete","create","diskon"]:           │
+│   2. for bot in ["delete","create","discount"]:           │
 │        if toggle ON & ada kerjaan:                      │
 │          bot.run_one_cycle(ctx)  -> n (row processed)   │
 │          if n > 0: break (restart cycle dari delete)    │
@@ -272,8 +272,8 @@ Kalau missing config, bot tampil popup error "Item berikut kurang" + list. Isi d
 └─────────────────────────────────────────────────────────┘
           │                │               │
           ▼                ▼               ▼
-   bot_delete.py    bot_create.py   bot_diskon.py
-   (DELETE)         (CREATE)        (DISKON)
+   bot_delete.py    bot_create.py   bot_discount.py
+   (DELETE)         (CREATE)        (DISCOUNT)
           │                │               │
           └────────┬───────┴───────┬───────┘
                    │               │
@@ -297,7 +297,7 @@ C:\Bot_Poster_v2\
 ├── shared.py                  # BotContext + Config + Logger + Chrome + Sheets + Stats
 ├── bot_delete.py              # Bot DELETE (10 market inline)
 ├── bot_create.py              # Bot CREATE (orchestrator + dynamic adapter)
-├── bot_diskon.py              # Bot DISKON (10 market inline)
+├── bot_discount.py              # Bot DISCOUNT (10 market inline)
 ├── webview_app.py             # UI webview + HTML bridge
 ├── Bot Manage Listing.html    # UI React (embedded)
 ├── create/                    # Per-market adapter (dipakai bot_create)
@@ -341,7 +341,7 @@ File `config.txt`. Auto-generated dari template kalau belum ada. Template source
 | `CHROME_DEBUG_PORT` | int | 9222 | Port debug Chrome. Ganti kalau bentrok |
 | `CHROME_USER_DATA_DIR` | str | `C:\chrome-debug` | Profile Chrome terpisah (session login marketplace) |
 | `GEMINI_API_KEY` | str | `ISI_API_KEY_GEMINI_DISINI` | API key Google Gemini (untuk form mapping bot_create) |
-| `DISKON_MAX_WORKER` | int | 5 | Max parallel worker bot_diskon (1-10). Batas berapa row diskon per cycle |
+| `DISCOUNT_MAX_WORKER` | int | 5 | Max parallel worker bot_discount (1-10). Batas berapa row discount per cycle |
 | `SHARED_POLLING_INTERVAL` | int | 60 | (legacy, ndak dipakai orchestrator baru pakai idle backoff) |
 | `LOG_RETENTION_DAYS` | int | 120 | Umur log file di `log/` sebelum auto-delete |
 
@@ -406,7 +406,7 @@ Cell `AI49` di tiap tab game = formula `COUNTIF` yang ngitung trigger di kolom A
 
 - **DELETE**: ambil **top-1 tab** dengan `C>0` (urut dari atas)
 - **CREATE**: ambil **top-1 tab** dengan `D>0`
-- **DISKON**: ambil **tab teratas sampai cumulative `sum(E) >= DISKON_MAX_WORKER`**, hard cap 5 tab
+- **DISCOUNT**: ambil **tab teratas sampai cumulative `sum(E) >= DISCOUNT_MAX_WORKER`**, hard cap 5 tab
 
 Alasan top-N=1 untuk delete/create: per cycle cuma proses 1 row, ndak perlu scan semua tab aktif (hemat bandwidth).
 
@@ -498,10 +498,10 @@ while not ctx.stop_event.is_set():
         try: ctx.sheets.connect()
         except: pass  # retry next iteration (60s cooldown)
 
-    snap = prescan_link(ctx)  # {"delete": [tab], "create": [tab], "diskon": [tabs]}
+    snap = prescan_link(ctx)  # {"delete": [tab], "create": [tab], "discount": [tabs]}
     processed = False
 
-    for bot_name in ["delete", "create", "diskon"]:
+    for bot_name in ["delete", "create", "discount"]:
         if stop_event: break
         if toggle OFF: continue
         if prescan snap empty untuk bot ini: continue
@@ -509,7 +509,7 @@ while not ctx.stop_event.is_set():
         # Inject prefetched tab list ke bot (1-shot, dipakai get_active_sheet_names)
         bot.set_prefetched_active_sheets(snap[bot_name])
 
-        n = bot.run_one_cycle(ctx)  # 1 row for delete/create, N worker for diskon
+        n = bot.run_one_cycle(ctx)  # 1 row for delete/create, N worker for discount
         if n > 0:
             processed = True
             break  # restart cycle dari delete (priority C > D > E)
@@ -525,7 +525,7 @@ while not ctx.stop_event.is_set():
     idle_wait = min(idle_wait + 10, 600)
 ```
 
-**Priority**: `DELETE > CREATE > DISKON`. Setelah 1 cycle sukses (`n > 0`), balik ke atas — selalu cek `DELETE` dulu karena irreversible jadi priority tinggi.
+**Priority**: `DELETE > CREATE > DISCOUNT`. Setelah 1 cycle sukses (`n > 0`), balik ke atas — selalu cek `DELETE` dulu karena irreversible jadi priority tinggi.
 
 **Idle backoff**: 30s → 40s → 50s → ... → 600s (10 menit). Reset ke 30s begitu ada kerjaan. User bisa tekan "Force Scan" di UI untuk skip idle wait.
 
@@ -619,9 +619,9 @@ Per-market worst case: 10 menit / 8 market paralel ≈ cap normal per market.
 
 Lihat [Async image download](#async-image-download).
 
-## Flow bot_diskon
+## Flow bot_discount
 
-File: [bot_diskon.py](bot_diskon.py). Market inline seperti bot_delete.
+File: [bot_discount.py](bot_discount.py). Market inline seperti bot_delete.
 
 ### run_one_cycle flow
 
@@ -641,13 +641,13 @@ File: [bot_diskon.py](bot_diskon.py). Market inline seperti bot_delete.
    c. AD column auto-update ke last edit date (via sheet formula / bot explicit)
 ```
 
-### DISKON_MAX_WORKER
+### DISCOUNT_MAX_WORKER
 
 Budget cumulative di prescan:
-- `prescan_link()` di [main.py](main.py) scan LINK!E dari atas, pick tab sampai `sum(E) >= DISKON_MAX_WORKER`, hard cap 5 tab
-- `MAX_WORKER` di `bot_diskon.py` clamp ke range 1-10 dari config
+- `prescan_link()` di [main.py](main.py) scan LINK!E dari atas, pick tab sampai `sum(E) >= DISCOUNT_MAX_WORKER`, hard cap 5 tab
+- `MAX_WORKER` di `bot_discount.py` clamp ke range 1-10 dari config
 
-Skenario (contoh `DISKON_MAX_WORKER=10`):
+Skenario (contoh `DISCOUNT_MAX_WORKER=10`):
 
 | Tab | E | cumulative | dipilih |
 |-----|---|------------|---------|
@@ -847,8 +847,8 @@ Format line:
 [HH:MM:SS] [BOT_CATEGORY] [Wn] message
 ```
 
-- `BOT_CATEGORY` = `APP` / `DELETE` / `CREATE` / `DISKON` / `AI` / `IMG` / market code
-- `Wn` = worker ID (diskon multi-worker)
+- `BOT_CATEGORY` = `APP` / `DELETE` / `CREATE` / `DISCOUNT` / `AI` / `IMG` / market code
+- `Wn` = worker ID (discount multi-worker)
 
 ---
 
@@ -856,9 +856,9 @@ Format line:
 
 Detail commit lihat `git log` atau GitHub Releases.
 
-- **v1.11.x (latest)** — IGV adapter full flow, async image download (8 adapter), U7 dropdown hardening + max 3 images, timeout 10 menit per row, GM count fix, **min price override semua market** (GM/G2G/ELDO/ZEUS/U7/GB/IGV — PA udah ada), **PA early error detection** (inline error polling paralel), **PA delete timeout 30s**, **G2G close dropdown 4-stage fallback**, IGV login_name kolom B di delivery, IGV settle delay 1s post-redirect, **update.bat enhancements** (version display + QuickEdit disable), **UI BotCard standby timer + running pulsing dot**, **Toast redesign** (pill badge SUKSES/ERROR + dimmed text color, no more dot pulse), **Toast format per-bot** (DELETE/DISKON full log, CREATE ringkas), **K line `[CODE]` brackets** semua adapter, **diskon per-market log** dengan emoji-aware [Worker N] prefix
+- **v1.11.x (latest)** — IGV adapter full flow, async image download (8 adapter), U7 dropdown hardening + max 3 images, timeout 10 menit per row, GM count fix, **min price override semua market** (GM/G2G/ELDO/ZEUS/U7/GB/IGV — PA udah ada), **PA early error detection** (inline error polling paralel), **PA delete timeout 30s**, **G2G close dropdown 4-stage fallback**, IGV login_name kolom B di delivery, IGV settle delay 1s post-redirect, **update.bat enhancements** (version display + QuickEdit disable), **UI BotCard standby timer + running pulsing dot**, **Toast redesign** (pill badge SUKSES/ERROR + dimmed text color, no more dot pulse), **Toast format per-bot** (DELETE/DISCOUNT full log, CREATE ringkas), **K line `[CODE]` brackets** semua adapter, **discount per-market log** dengan emoji-aware [Worker N] prefix
 - **v1.10.x** — PA min price $5, "Full Screenshot Detail:" description prefix 6 market, U7 upload abort-after-first-fail
-- **v1.9.x** — Top-N=1 prescan + cumulative budget diskon, bottom-up row scan, duration di log cycle
+- **v1.9.x** — Top-N=1 prescan + cumulative budget discount, bottom-up row scan, duration di log cycle
 - **v1.8.x** — Cycle sequential orchestrator, per-market adapter pluggable
 - Sebelumnya — legacy polling mode
 

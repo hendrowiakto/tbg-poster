@@ -730,7 +730,7 @@ def create_listing(game_name, title, deskripsi, harga, field_mapping, image_path
             context.set_default_navigation_timeout(30000)
             page = context.new_page()
 
-            # U7 quirk (sama kayak bot_diskon): jangan pakai networkidle,
+            # U7 quirk (sama kayak bot_discount): jangan pakai networkidle,
             # website polling XHR persisten bikin idle ndak pernah triggered.
             # Pakai domcontentloaded + wait manual lebih reliable.
             page.goto(U7_START_URL, wait_until="domcontentloaded", timeout=30000)
@@ -964,7 +964,7 @@ def scrape_form_options(game_name):
             context.set_default_navigation_timeout(30000)
             page = context.new_page()
 
-            # U7 quirk (sama kayak bot_diskon): jangan pakai networkidle,
+            # U7 quirk (sama kayak bot_discount): jangan pakai networkidle,
             # website polling XHR persisten bikin idle ndak pernah triggered.
             # Pakai domcontentloaded + wait manual lebih reliable.
             page.goto(U7_START_URL, wait_until="domcontentloaded", timeout=30000)

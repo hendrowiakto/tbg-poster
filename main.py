@@ -7,7 +7,7 @@ Bertanggung jawab:
 - Build Tkinter GUI: 3 toggles + progress row + dashboard tabs + live log + bottom bar.
 - Handle graceful close (stop_event, cleanup Chrome, destroy GUI).
 
-Orchestrator pattern: sequential per cycle (Delete -> Create -> Diskon) dengan
+Orchestrator pattern: sequential per cycle (Delete -> Create -> Discount) dengan
 toggle ON/OFF per bot. Semua infrastruktur (logger, chrome, sheets, stats,
 toggles, progress) datang dari `ctx`.
 """
@@ -26,23 +26,23 @@ from webview_app import WebviewApp
 
 # ===================== ORCHESTRATOR =====================
 # Top-N picking strategy untuk prescan: bot delete/create proses 1 row/cycle,
-# jadi cukup scan 1 tab teratas. Bot diskon punya N worker paralel (MAX_WORKER),
+# jadi cukup scan 1 tab teratas. Bot discount punya N worker paralel (MAX_WORKER),
 # jadi dinamis - scan tab teratas sampai cumulative count >= budget worker
 # (capped supaya ndak edge case scan kebanyakan tab kalau E per-tab kecil-kecil).
 TOP_N_DELETE             = 1
 TOP_N_CREATE             = 1
 TOP_N_TITLE              = 1
-DISKON_MAX_TABS_HARD_CAP = 5
+DISCOUNT_MAX_TABS_HARD_CAP = 5
 
 
 def prescan_link(ctx):
     """1 batch_get untuk LINK!A + C + D + E + F -> dict per-bot tab aktif.
     Hemat vs dulu yg 3x batch_get (1 per bot). Return:
-        {"delete": [...]|None, "create": [...]|None, "diskon": [...]|None, "title": [...]|None}
+        {"delete": [...]|None, "create": [...]|None, "discount": [...]|None, "title": [...]|None}
     None = prescan gagal (bot fallback ke get_active_sheet_names sendiri).
 
     Top-N strategy: delete/create/title cuma kasih 1 tab teratas (1 row/cycle),
-    diskon cumulative budget sesuai DISKON_MAX_WORKER (capped 5 tab).
+    discount cumulative budget sesuai DISCOUNT_MAX_WORKER (capped 5 tab).
     Total count tetap di-track akurat di ctx.task_counts (untuk badge UI).
     """
     try:
@@ -57,7 +57,7 @@ def prescan_link(ctx):
         )
     except Exception as e:
         ctx.logger.log("app", f"Prescan LINK gagal: {str(e)[:200]}")
-        return {"delete": None, "create": None, "diskon": None, "title": None}
+        return {"delete": None, "create": None, "discount": None, "title": None}
 
     vranges = resp.get("valueRanges", []) or []
     col_a = vranges[0].get("values", []) if len(vranges) >= 1 else []
@@ -113,28 +113,32 @@ def prescan_link(ctx):
     dis_sum = sum(c for _, c in dis_pairs)
     tit_sum = sum(c for _, c in tit_pairs)
 
-    # Diskon budget = MAX_WORKER bot_diskon (config DISKON_MAX_WORKER, range 1-10).
-    diskon_budget = max(1, min(10, ctx.config.get_int("DISKON_MAX_WORKER", 5)))
+    # Discount budget = MAX_WORKER bot_discount (config DISCOUNT_MAX_WORKER, range 1-10).
+    # Backward compat: read DISCOUNT_MAX_WORKER first, fallback DISKON_MAX_WORKER (legacy).
+    _dw = ctx.config.get_int("DISCOUNT_MAX_WORKER", 0)
+    if _dw <= 0:
+        _dw = ctx.config.get_int("DISKON_MAX_WORKER", 5)
+    discount_budget = max(1, min(10, _dw))
 
     # Apply top-N picking per bot
     del_tabs = _pick_top_n(del_pairs, n=TOP_N_DELETE)
     cre_tabs = _pick_top_n(cre_pairs, n=TOP_N_CREATE)
-    dis_tabs = _pick_cumulative(dis_pairs, budget=diskon_budget,
-                                max_tabs=DISKON_MAX_TABS_HARD_CAP)
+    dis_tabs = _pick_cumulative(dis_pairs, budget=discount_budget,
+                                max_tabs=DISCOUNT_MAX_TABS_HARD_CAP)
     tit_tabs = _pick_top_n(tit_pairs, n=TOP_N_TITLE)
 
     # Stash ke ctx supaya StateBridge bisa push ke UI sebagai badge "DELETE (N)"
     ctx.task_counts = {
         "delete": del_sum,
         "create": cre_sum,
-        "diskon": dis_sum,
+        "discount": dis_sum,
         "title":  tit_sum,
     }
 
     result = {
         "delete": del_tabs,
         "create": cre_tabs,
-        "diskon": dis_tabs,
+        "discount": dis_tabs,
         "title":  tit_tabs,
     }
     # Skip log kalau semua idle - orchestrator sudah log "Semua idle, retry in Xs..."
@@ -147,7 +151,7 @@ def prescan_link(ctx):
         if cre_sum:
             parts.append(f"CREATE={len(cre_tabs)}/{len(cre_pairs)}({cre_sum})")
         if dis_sum:
-            parts.append(f"DISKON={len(dis_tabs)}/{len(dis_pairs)}({dis_sum})")
+            parts.append(f"DISCOUNT={len(dis_tabs)}/{len(dis_pairs)}({dis_sum})")
         if tit_sum:
             parts.append(f"TITLE={len(tit_tabs)}/{len(tit_pairs)}({tit_sum})")
         ctx.logger.log("app", f"Prescan LINK: {' '.join(parts)}")
@@ -155,21 +159,21 @@ def prescan_link(ctx):
 
 
 def orchestrator_loop(ctx):
-    """Priority cycle: DELETE (C) > CREATE (D) > DISKON (E).
+    """Priority cycle: DELETE (C) > CREATE (D) > DISCOUNT (E).
     1 prescan LINK!A+C+D+E di awal tiap iterasi -> routing ke bot prioritas
     tertinggi yg punya count>0. Semua idle/OFF -> sleep SHARED_POLLING_INTERVAL.
     """
     import bot_delete
     import bot_create
-    import bot_diskon
+    import bot_discount
     import bot_title
     bots_map = {
         "delete": bot_delete,
         "create": bot_create,
-        "diskon": bot_diskon,
+        "discount": bot_discount,
         "title":  bot_title,
     }
-    priority = ["delete", "create", "diskon", "title"]
+    priority = ["delete", "create", "discount", "title"]
 
     # Dynamic backoff saat idle: mulai 30s, tambah +10s tiap iterasi tanpa kerjaan,
     # cap di 600s (10 menit). Reset ke base begitu ada kerjaan.
@@ -362,7 +366,7 @@ def main():
 
     ctx = BotContext(config)
     ctx.force_scan = False  # GUI-driven flag: skip idle wait, prescan ulang
-    ctx.task_counts = {"delete": 0, "create": 0, "diskon": 0, "title": 0}  # diisi prescan_link
+    ctx.task_counts = {"delete": 0, "create": 0, "discount": 0, "title": 0}  # diisi prescan_link
 
     ctx.init_folders_and_files()
     ctx.cleanup_old_logs()

@@ -1,9 +1,9 @@
-"""bot_diskon.py - update harga diskon di 10 marketplace dari Google Sheets.
+"""bot_discount.py - update harga discount di 10 marketplace dari Google Sheets.
 
 Module kontrak (dipanggil oleh main.py via orchestrator):
-    BOT_NAME = "diskon"
+    BOT_NAME = "discount"
     def run_one_cycle(ctx) -> int:
-        # 1 cycle: scan LINK!E -> collect max DISKON_MAX_WORKER candidates ->
+        # 1 cycle: scan LINK!E -> collect max DISCOUNT_MAX_WORKER candidates ->
         # dispatch parallel worker threads (1 worker = 1 produk across N market).
         # Return: jumlah produk diproses (>0 kalau ada progress, 0 kalau idle).
 
@@ -70,7 +70,7 @@ CHROME_CDP_URL        = None
 CDP_URL               = None   # alias - dipakai langsung oleh preserved 10 update_harga_*
 CHROME_DEBUG_PORT     = None
 SPREADSHEET_ID        = ""     # di-set dari ctx.config, dipakai build URL sheet
-MAX_WORKER            = 5      # di-set dari ctx.config "DISKON_MAX_WORKER"
+MAX_WORKER            = 5      # di-set dari ctx.config "DISCOUNT_MAX_WORKER"
 current_sheet_label   = {"val": "-"}  # sheet yang sedang di-scan (untuk GUI)
 force_start           = False  # flag untuk skip idle wait (di-set GUI via ctx)
 
@@ -85,7 +85,11 @@ def _bind_ctx(ctx):
     CHROME_DEBUG_PORT  = ctx.chrome.debug_port
     SPREADSHEET_ID     = ctx.config.get("SPREADSHEET_ID", "")
     try:
-        raw_max = int(str(ctx.config.get("DISKON_MAX_WORKER", "5")).strip())
+        # Backward compat: prefer DISCOUNT_MAX_WORKER, fallback DISKON_MAX_WORKER (legacy)
+        raw_val = ctx.config.get("DISCOUNT_MAX_WORKER", "")
+        if not str(raw_val).strip():
+            raw_val = ctx.config.get("DISKON_MAX_WORKER", "5")
+        raw_max = int(str(raw_val).strip())
     except Exception:
         raw_max = 5
     MAX_WORKER = max(1, min(10, raw_max))
@@ -101,7 +105,7 @@ def _pause_poller():
     """Sinkronisasi `bot_paused` dengan state toggle saat ini.
 
     Jalan di background thread selama _ctx.stop_event belum di-set. Jika toggle
-    diskon OFF atau stop_event aktif -> set bot_paused=True sehingga worker yg
+    discount OFF atau stop_event aktif -> set bot_paused=True sehingga worker yg
     lagi jalan nunggu di `while bot_paused: time.sleep(1)`.
     """
     global bot_paused
@@ -126,7 +130,7 @@ def _ensure_pause_poller():
     if _pause_poller_thread is not None and _pause_poller_thread.is_alive():
         return
     _pause_poller_thread = threading.Thread(
-        target=_pause_poller, daemon=True, name="diskon-pause-poller"
+        target=_pause_poller, daemon=True, name="discount-pause-poller"
     )
     _pause_poller_thread.start()
 
@@ -178,7 +182,7 @@ def add_log(msg):
         _ctx.logger.log(BOT_NAME, formatted)
     else:
         try:
-            print(f"[diskon] {formatted}")
+            print(f"[discount] {formatted}")
         except Exception:
             pass
 
@@ -224,7 +228,7 @@ def open_chrome():
         return False
 
 
-BOT_NAME = "diskon"
+BOT_NAME = "discount"
 
 
 # ===================== CHROME & SHEETS HELPERS =====================
@@ -453,24 +457,27 @@ def update_harga_gm(kode_listing, harga, manage_link):
             smart_wait(page, 4000, 6000)
 
             add_log(f"[GM] Klik kolom search...")
-            search_input = page.locator("input[placeholder='Search game..']").first
+            search_input = page.locator("input[placeholder='Search listing..']").first
             search_input.wait_for(state="visible", timeout=10000)
             search_input.click()
             smart_wait(page, 1000, 2000)
 
             add_log(f"[GM] Paste kode listing: {kode_listing}...")
             search_input.fill(kode_listing)
+            search_input.press("Enter")
             smart_wait(page, 3000, 5000)
 
             add_log("[GM] Klik tombol edit harga...")
-            # XPath: cari label 'Price', naik ke parent, lalu cari div cursor-pointer di dalamnya
-            edit_btn = page.locator("xpath=//label[normalize-space()='Price']/parent::div//div[contains(@class,'cursor-pointer')]").first
+            # Span harga: width fixed 71px + font-semibold + text-center + underline (title underline ndak ada w-[71px])
+            edit_btn = page.locator(
+                'span[class*="w-[71px]"][class*="cursor-pointer"][class*="underline"][class*="font-semibold"][class*="text-center"]'
+            ).first
             edit_btn.wait_for(state="visible", timeout=10000)
             edit_btn.click()
             smart_wait(page, 1000, 2000)
 
             add_log(f"[GM] Isi harga baru: {harga}...")
-            price_input = page.locator("input[name='value'][type='number']").first
+            price_input = page.locator("input[name='price'][type='number']").first
             price_input.wait_for(state="visible", timeout=10000)
             old_price = price_input.input_value()
             time.sleep(1)
@@ -1433,7 +1440,7 @@ def _proses_produk_body(sheet, data, baris_index, worker_id=1):
             if berhasil:
                 hasil_per_market[platform] = ("✅", None, task["harga"], old_price)
                 old_p = old_price if old_price else "?"
-                add_log(f"✅ [{platform}] {kode_listing} berhasil diskon {old_p} > {task['harga']}")
+                add_log(f"✅ [{platform}] {kode_listing} berhasil discount {old_p} > {task['harga']}")
             else:
                 hasil_per_market[platform] = ("❌", error, task["harga"], "")
                 add_log(f"❌ [{platform}] {kode_listing} tidak dapat diproses!")
@@ -1592,7 +1599,7 @@ def run_one_cycle(ctx):
         if t.is_alive():
             add_log("Worker thread timeout 10 menit! Thread masih jalan, lanjut.")
             if _ctx is not None:
-                _ctx.zombies.track(t, "diskon")
+                _ctx.zombies.track(t, "discount")
 
     # Cleanup tab dihandle di orchestrator (main.py) - hindari double-call yang bikin blink.
     return len(results)

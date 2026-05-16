@@ -163,9 +163,9 @@ _LOG_RE = re.compile(
 )
 
 # Levels yang dikenal UI; selain itu fallback ke 'SYS'.
-_KNOWN_LEVELS = {"APP", "DELETE", "CREATE", "DISKON", "TITLE", "ERR", "OK", "WARN", "SYS"}
+_KNOWN_LEVELS = {"APP", "DELETE", "CREATE", "DISCOUNT", "TITLE", "ERR", "OK", "WARN", "SYS"}
 
-_BOT_KEYS_UI = ("DELETE", "CREATE", "DISKON", "TITLE")   # uppercase -> cocok UI
+_BOT_KEYS_UI = ("DELETE", "CREATE", "DISCOUNT", "TITLE")   # uppercase -> cocok UI
 _RUNNING_PHASES = ("running", "scanning", "processing")
 
 
@@ -286,8 +286,12 @@ class BotAPI:
         self._log(f"Bot {key.upper()} {'dinyalakan' if enabled else 'dimatikan'}")
         return {"ok": True}
 
+    def set_max_discount(self, value):
+        return self._set_worker_count("DISCOUNT_MAX_WORKER", value)
+
+    # Backward-compat alias: kalau cached UI masih panggil set_max_diskon
     def set_max_diskon(self, value):
-        return self._set_worker_count("DISKON_MAX_WORKER", value)
+        return self.set_max_discount(value)
 
     def _set_worker_count(self, key, value):
         try:
@@ -507,16 +511,19 @@ class StateBridge:
         connected = bool(chrome_ok and sheets_ok and any_enabled)
 
         try:
-            max_diskon = ctx.config.get_int("DISKON_MAX_WORKER", 5)
+            # Backward compat: prefer DISCOUNT_MAX_WORKER, fallback DISKON_MAX_WORKER
+            max_discount = ctx.config.get_int("DISCOUNT_MAX_WORKER", 0)
+            if max_discount <= 0:
+                max_discount = ctx.config.get_int("DISKON_MAX_WORKER", 5)
         except Exception:
-            max_diskon = 5
+            max_discount = 5
 
         return {
             "connected": connected,
             "bots": bots_ui,
             "workers": workers_out,
             "stats": stats_out,
-            "maxDiskon": max_diskon,
+            "maxDiscount": max_discount,
         }
 
     def _collect_workers(self, bot):
@@ -550,13 +557,13 @@ class StateBridge:
                                 break
                         if not row_part and len(segs) > 1:
                             row_part = segs[1]
-                    # bot_diskon set "waiting": True saat worker antri market_lock
+                    # bot_discount set "waiting": True saat worker antri market_lock
                     # (idle, tidak sedang proses market). bot_create tidak punya
                     # konsep waiting - semua worker listed = active.
                     waiting = bool(info.get("waiting", False))
                     # bot_create & bot_delete selalu 1 worker -> id tanpa angka.
-                    # bot_diskon multi-worker -> id dgn angka (W1, W2, ...).
-                    worker_id = f"W{wid}" if bot == "diskon" else "W"
+                    # bot_discount multi-worker -> id dgn angka (W1, W2, ...).
+                    worker_id = f"W{wid}" if bot == "discount" else "W"
                     out.append({
                         "id": worker_id,
                         "game": sheet_part or "-",

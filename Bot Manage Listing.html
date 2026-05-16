@@ -104,7 +104,7 @@ const Icon = ({ d, size = 14, stroke = "currentColor", fill = "none", strokeWidt
 const icons = {
   delete: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
   create: "M12 5v14M5 12h14",
-  diskon: "M19 5L5 19M9 6.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM20.5 17.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z",
+  discount: "M19 5L5 19M9 6.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM20.5 17.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z",
   title: "M4 7V5h16v2M9 5v14M15 5v14M9 19h6",
   log: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6",
   sheets: "M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zM3 9h18M3 15h18M9 3v18",
@@ -128,7 +128,7 @@ const fmtDate = () => {
 };
 
 const initialLogs = [
-  { id:10000,  time:'09:08:50', level:'APP',    msg:'Prescan LINK: DELETE=1 CREATE=0 DISKON=0' },
+  { id:10000,  time:'09:08:50', level:'APP',    msg:'Prescan LINK: DELETE=1 CREATE=0 DISCOUNT=0' },
   { id:10001,  time:'09:08:50', level:'APP',    msg:'Mulai cycle DELETE' },
   { id:10002,  time:'09:08:52', level:'DELETE', msg:'LINK!C counter: 1 tab aktif, total 4 PERLU DELETE' },
   { id:10003,  time:'09:08:54', level:'DELETE', msg:"Ketemu PERLU DELETE: sheet='Clash Royale' baris=57" },
@@ -148,12 +148,12 @@ const initialLogs = [
   { id:10017, time:'10:13:05', level:'CREATE', msg:'[W1] [GM] AI: Accounts -> High-End' },
   { id:10018, time:'10:13:18', level:'CREATE', msg:'[W1] Total gambar siap upload: 20' },
   { id:10019, time:'10:13:28', level:'CREATE', msg:'[W1] Baris 57 SUKSES di-listing! Game: Clash Royale | 3 gambar' },
-  { id:10020, time:'07:48:58', level:'DISKON', msg:'LINK!E counter: 1 tab aktif, total 3 PERLU DISCOUNT' },
-  { id:10021, time:'07:48:59', level:'DISKON', msg:"Ketemu PERLU DISCOUNT: sheet='Clash Royale' baris=57" },
-  { id:10022, time:'07:48:59', level:'DISKON', msg:'[W1] Proses baris 57 | Kode: SSR1111 | IDR=Rp 5,844,000 | USD=340.96 | EUR=290.09' },
-  { id:10023, time:'07:49:17', level:'DISKON', msg:'[W1] [GM] Isi harga baru: 340.96...' },
-  { id:10024, time:'07:49:25', level:'DISKON', msg:'[W1] [GM] Harga SSR1111 berhasil diupdate ke 340.96!' },
-  { id:10025, time:'07:49:26', level:'DISKON', msg:'[W1] Baris 57 selesai. AB: All Good | AC: 20/Apr/2026 07:49' },
+  { id:10020, time:'07:48:58', level:'DISCOUNT', msg:'LINK!E counter: 1 tab aktif, total 3 PERLU DISCOUNT' },
+  { id:10021, time:'07:48:59', level:'DISCOUNT', msg:"Ketemu PERLU DISCOUNT: sheet='Clash Royale' baris=57" },
+  { id:10022, time:'07:48:59', level:'DISCOUNT', msg:'[W1] Proses baris 57 | Kode: SSR1111 | IDR=Rp 5,844,000 | USD=340.96 | EUR=290.09' },
+  { id:10023, time:'07:49:17', level:'DISCOUNT', msg:'[W1] [GM] Isi harga baru: 340.96...' },
+  { id:10024, time:'07:49:25', level:'DISCOUNT', msg:'[W1] [GM] Harga SSR1111 berhasil diupdate ke 340.96!' },
+  { id:10025, time:'07:49:26', level:'DISCOUNT', msg:'[W1] Baris 57 selesai. AB: All Good | AC: 20/Apr/2026 07:49' },
 ];
 
 const initialStats = {
@@ -165,7 +165,7 @@ const initialStats = {
     allTime: { 'Clash Royale':{sukses:21,gagal:9,total:30} },
     today:   { sukses:21, gagal:9, total:30 },
   },
-  DISKON: {
+  DISCOUNT: {
     allTime: { GM:{sukses:16,gagal:2,total:18} },
     today:   { sukses:16, gagal:2, total:18 },
   },
@@ -449,7 +449,7 @@ function StatTable({ stats, tab }) {
 }
 
 function LogEntry({ entry, showTimestamps, fontSize }) {
-  const levelColors = { APP:'var(--accent)', DELETE:'var(--danger)', CREATE:'var(--success)', DISKON:'var(--warning)', TITLE:'var(--purple)', ERR:'var(--danger)', OK:'var(--success)', WARN:'var(--warning)', SYS:'var(--text3)' };
+  const levelColors = { APP:'var(--accent)', DELETE:'var(--danger)', CREATE:'var(--success)', DISCOUNT:'var(--warning)', TITLE:'var(--purple)', ERR:'var(--danger)', OK:'var(--success)', WARN:'var(--warning)', SYS:'var(--text3)' };
   const c = levelColors[entry.level] || 'var(--text2)';
   const [hov, setHov] = useState(false);
   return (
@@ -662,18 +662,18 @@ function App() {
   const [stats, setStats] = useState({
     DELETE: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
     CREATE: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
-    DISKON: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
+    DISCOUNT: { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
     TITLE:  { allTime: {}, today: { sukses:0, gagal:0, total:0 } },
   });
   const [autoScroll, setAutoScroll] = useState(true);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
   const [appInfo, setAppInfo] = useState({ version: '', releaseDate: '' });
-  const [maxDiskon, setMaxDiskon] = useState(5);
+  const [maxDiscount, setMaxDiscount] = useState(5);
   const [workers, setWorkers] = useState([]);
   const [bots, setBots] = useState({
     DELETE: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'danger',  icon: 'delete' },
     CREATE: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'green',   icon: 'create' },
-    DISKON: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'warning', icon: 'diskon' },
+    DISCOUNT: { active: false, enabled: false, status: 'Standby', progress: 0, color: 'warning', icon: 'discount' },
     TITLE:  { active: false, enabled: false, status: 'Standby', progress: 0, color: 'purple',  icon: 'title'  },
   });
   const logRef = useRef(null);
@@ -699,7 +699,7 @@ function App() {
           msg: entry.msg || '',
         }));
         // Toast triggers on newly arrived outcome entries.
-        // Strategi: match marker ✅/❌ (CREATE report, DISKON "AB: ✅..."),
+        // Strategi: match marker ✅/❌ (CREATE report, DISCOUNT "AB: ✅..."),
         // + pola DELETE (tanpa emoji native: "berhasil dihapus/cancel/offline" & "Gagal:").
         for (const entry of appended) {
           const clean = (entry.msg || '').replace(/\[W\d+\]\s*/, '');
@@ -725,7 +725,9 @@ function App() {
       if (typeof s.connected === 'boolean') setConnected(s.connected);
       if (Array.isArray(s.workers)) setWorkers(s.workers);
       if (s.stats && typeof s.stats === 'object') setStats(prev => ({ ...prev, ...s.stats }));
-      if (typeof s.maxDiskon === 'number') setMaxDiskon(Math.min(10, Math.max(1, s.maxDiskon)));
+      // Backward compat: prefer maxDiscount, fallback maxDiskon (legacy)
+      const _md = (typeof s.maxDiscount === 'number') ? s.maxDiscount : s.maxDiskon;
+      if (typeof _md === 'number') setMaxDiscount(Math.min(10, Math.max(1, _md)));
       if (s.bots && typeof s.bots === 'object') {
         setBots(prev => {
           const next = { ...prev };
@@ -833,10 +835,10 @@ function App() {
     if (a && a.open_sheets) { try { await a.open_sheets(); } catch (_) {} }
   };
 
-  const onChangeMaxDiskon = (v) => {
-    setMaxDiskon(v);
+  const onChangeMaxDiscount = (v) => {
+    setMaxDiscount(v);
     const a = api();
-    if (a && a.set_max_diskon) { try { a.set_max_diskon(v); } catch (_) {} }
+    if (a && a.set_max_discount) { try { a.set_max_discount(v); } catch (_) {} }
   };
 
   const clearLogs = () => setLogs([]);
@@ -942,7 +944,7 @@ function App() {
                 display:'flex', gap:2, marginBottom:10,
                 background:'var(--surface3)', borderRadius:8, padding:3,
               }}>
-                {['DELETE','CREATE','DISKON','TITLE'].map(t => {
+                {['DELETE','CREATE','DISCOUNT','TITLE'].map(t => {
                   const isActive = activeTab === t;
                   const [hov, setHov] = React.useState(false);
                   return (
@@ -1058,7 +1060,7 @@ function App() {
         <ActionBtn icon="sheets" label="Google Sheets" onClick={openSheets} variant="purple" blink={blinking['sheets']} />
         <ActionBtn icon="scan" label={blinking['scan'] ? 'Scanning...' : 'Force Scan'} onClick={forceScan} variant="primary" blink={blinking['scan']} />
         <div style={{ flex:1 }} />
-        <NumberInput label="Diskon" icon="worker" value={maxDiskon} onChange={onChangeMaxDiskon} />
+        <NumberInput label="Discount" icon="worker" value={maxDiscount} onChange={onChangeMaxDiscount} />
         {appInfo.version ? (<>
           <div style={{ width:1, height:22, background:'var(--border)', marginLeft:4 }} />
           <div style={{

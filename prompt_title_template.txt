@@ -20,6 +20,48 @@ ACCURATE on facts and DENSE on content. Structure is handled by code.
 NOTE: You do not see the listing code or the title template. Those are handled
 by Python at assembly time. Your only output is JSON (see <output_format>).
 
+<focus_directive>
+PRIMARY CONTENT DIRECTIVE — read this BEFORE composing any "isi".
+
+CHECK FOCUS_GUIDANCE in <context>:
+
+A) IF FOCUS_GUIDANCE contains user instructions (any text other than empty,
+   "(none ...)" placeholder, or whitespace) → FOCUS MODE is ACTIVE. Apply
+   ALL of the following:
+
+   1. CONTENT GATE — at least 60% of each variant's "isi" CHARACTERS must
+      directly relate to the FOCUS topic. The remaining ≤40% may include
+      complementary high-value facts that contextualize the focus.
+
+   2. LEAD POSITION — every variant's "isi" MUST open with a fact that
+      directly satisfies FOCUS (no warm-up, no unrelated lead-in).
+
+   3. VARIANT ROTATION = SUB-ANGLES of FOCUS, not unrelated topics.
+      Each variant explores a DIFFERENT angle/cut of the SAME focus.
+      Example — FOCUS = "rare characters + their constellations":
+        Variant 1: rarest single char + C-level + signature weapon
+        Variant 2: 2nd rarest + C-level + standout sub-stats
+        Variant 3: cluster of high-C limiteds packaged together
+      Each variant must still LEAD with a DIFFERENT fact (no paraphrase).
+
+   4. ABSENT-TOPIC FALLBACK — if FOCUS topic is genuinely NOT visible in
+      screenshots (zero related facts), lead with the closest available
+      adjacent fact, then fall back to default standout ranking for the
+      remaining characters. NEVER invent, fake, or generalize beyond what
+      screenshots show.
+
+   5. FOCUS overrides the default standout ranking and the default variant
+      rotation in <isi_rules>. FOCUS does NOT override visual truth (#2),
+      style mirroring (#8), forbidden filler words, or character budget.
+      → FOCUS dictates WHAT facts; style rules dictate HOW you write them.
+
+B) IF FOCUS_GUIDANCE is empty / placeholder → FOCUS MODE INACTIVE. Use the
+   default standout ranking and default variant rotation in <isi_rules>
+   exactly as written. No behavior change from FOCUS in this case.
+
+Confirm internally which mode is active BEFORE writing any variant.
+</focus_directive>
+
 <lookup_keys>
 For each LOOKUP KEY below, determine its value by inspecting the screenshots:
 
@@ -44,33 +86,28 @@ Rules for lookup values:
    account rank/level, achievements, content cleared, cosmetics. Cross-
    reference across multiple screenshots when info appears in more than one.
 
-2. STANDOUTS: rank facts by rarity / value / hard-to-obtain. Lead "isi" with
-   the strongest standout for that variant (limited/event-exclusive units,
-   max-level rare units, top-tier currency stockpile, completed endgame, rare
-   cosmetics).
+2. STANDOUTS (DEFAULT — used ONLY when FOCUS MODE is INACTIVE):
+   Rank facts by rarity / value / hard-to-obtain. Lead "isi" with the
+   strongest standout for that variant (limited/event-exclusive units,
+   max-level rare units, top-tier currency stockpile, completed endgame,
+   rare cosmetics).
 
-   FOCUS_GUIDANCE OVERRIDE: If FOCUS_GUIDANCE in <context> contains user
-   instructions (anything other than "(none ...)"), it OVERRIDES the default
-   standout ranking. Apply FOCUS_GUIDANCE as the primary instruction for what
-   to emphasize in "isi" across ALL variants. Example: if FOCUS_GUIDANCE says
-   "Focus on rare characters and their constellations", every variant's "isi"
-   should lead with character + constellation info, regardless of what else
-   exists in the screenshots. If FOCUS_GUIDANCE conflicts with default
-   standout logic, FOCUS_GUIDANCE wins.
+   ⚠️ When FOCUS MODE is ACTIVE, this default ranking is OVERRIDDEN by
+   <focus_directive>. Do not apply default standouts in focus mode.
 
 3. DENSITY: pack "isi" with real facts. Length MUST be between ISI_MIN_CHARS
    and ISI_MAX_CHARS characters. If short, ADD more high-value facts. If long,
    DROP the least important facts. Never use filler words to pad length — only
    real visual facts.
 
-4. VARIANT DIFFERENTIATION: each variant's "isi" must LEAD with a DIFFERENT
-   standout. No two variants may paraphrase each other.
-   Suggested rotation:
-     Variant 1: rarest asset (named limited/event unit)
-     Variant 2: breadth / collection completeness
-     Variant 3: endgame / rank / clears
-     Variant 4: resource / currency stockpile
-     Variant 5+: cosmetic / hybrid angle
+4. VARIANT DIFFERENTIATION:
+   - FOCUS MODE INACTIVE → default rotation:
+       Variant 1: rarest asset (named limited/event unit)
+       Variant 2: breadth / collection completeness
+       Variant 3: endgame / rank / clears
+   - FOCUS MODE ACTIVE → sub-angle rotation per <focus_directive> rule 3.
+   No two variants may paraphrase each other. Each must LEAD with a
+   DIFFERENT fact (whether default standout or focus sub-angle).
 </isi_rules>
 
 <hard_rules>
@@ -96,7 +133,7 @@ Rules for lookup values:
      plus "+"       for combinations (e.g. "Linnea+Sign", "9Limited+7")
    Match the punctuation style of REFERENCE_TITLES verbatim.
 
-8. STRICT STYLE MIRRORING (highest priority for "isi"):
+8. STRICT STYLE MIRRORING (highest priority for HOW you write):
    "isi" MUST mimic the structure, separator pattern, and verbal density of
    REFERENCE_TITLES literally. If references use inner pipes "|" between
    sections, you MUST use the same. If references use abbreviations like
@@ -129,6 +166,15 @@ Rules for lookup values:
      - punctuation density (parens around character groups, commas inside)
    Mirror these patterns. Your "isi" should be readable side-by-side with a
    reference title and look like the same author wrote it.
+
+10. CONTENT vs STYLE SPLIT (priority hierarchy):
+    - WHAT facts appear → controlled by <focus_directive> (when FOCUS MODE
+      active) OR <isi_rules> default (when FOCUS MODE inactive).
+    - HOW facts are written → controlled by rule #8 style mirroring +
+      forbidden filler + abbreviations.
+    These two layers do not conflict: FOCUS picks the facts, STYLE shapes
+    them. Never sacrifice style rules to fit FOCUS, and never sacrifice
+    FOCUS coverage (≥60%) to fit unrelated default standouts.
 </hard_rules>
 
 <output_format>

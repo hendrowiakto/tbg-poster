@@ -6,7 +6,7 @@ Exposes:
 - `TimeoutHangError`, `call_with_timeout`, `validate_config`
 - Constants: `SCRIPT_DIR`, `CONFIG_FILE`, `CREDENTIALS_FILE`, `LOG_DIR`, `BOT_NAMES`
 
-Semua bot (bot_delete / bot_create / bot_diskon) ambil infrastruktur lewat
+Semua bot (bot_delete / bot_create / bot_discount) ambil infrastruktur lewat
 `BotContext` - tidak ada duplikat logger/chrome/sheets/stats di 3 file bot.
 """
 
@@ -33,7 +33,7 @@ CREDENTIALS_FILE = os.path.join(SCRIPT_DIR, "credentials.json")
 VERSION_FILE     = os.path.join(SCRIPT_DIR, "VERSION.txt")
 LOG_DIR          = os.path.join(SCRIPT_DIR, "log")
 
-BOT_NAMES = ("delete", "create", "diskon", "title")
+BOT_NAMES = ("delete", "create", "discount", "title")
 
 STATS_FILE = os.path.join(SCRIPT_DIR, "stats.txt")
 
@@ -131,8 +131,8 @@ CHROME_USER_DATA_DIR=C:\\chrome-debug
 # ============ GEMINI AI (untuk bot_create) ============
 GEMINI_API_KEY=ISI_API_KEY_GEMINI_DISINI
 
-# ============ BOT_DISKON ============
-DISKON_MAX_WORKER=5
+# ============ BOT_DISCOUNT ============
+DISCOUNT_MAX_WORKER=5
 
 # ============ SHARED ============
 SHARED_POLLING_INTERVAL=60
@@ -140,7 +140,7 @@ LOG_RETENTION_DAYS=120
 
 # ROW_ORDER = arah scan row untuk pilih kerjaan. 'bottom' (default) = row
 # paling bawah dulu (data terbaru). 'top' = row paling atas dulu (51, 52, ...).
-# Berlaku untuk 3 bot (CREATE / DELETE / DISKON) konsisten.
+# Berlaku untuk 3 bot (CREATE / DELETE / DISCOUNT) konsisten.
 ROW_ORDER=bottom
 """
 
@@ -172,6 +172,11 @@ class Config:
                         self._data[k.strip()] = v.strip()
         except Exception:
             pass
+
+        # Legacy migration: DISKON_MAX_WORKER -> DISCOUNT_MAX_WORKER (in-memory)
+        # Cegah auto-append nimpa value lama dengan default 5.
+        if "DISKON_MAX_WORKER" in self._data and "DISCOUNT_MAX_WORKER" not in self._data:
+            self._data["DISCOUNT_MAX_WORKER"] = self._data["DISKON_MAX_WORKER"]
 
         # Auto-append template keys yg hilang (upgrade-friendly)
         template_defaults = {}
@@ -696,6 +701,10 @@ class StatsManager:
                 data = json.loads(f.read())
             if not isinstance(data, dict):
                 return
+            # Legacy migration: rename "diskon" key to "discount" supaya stats
+            # lama dari office tetap kebaca setelah upgrade naming.
+            if "diskon" in data and "discount" not in data:
+                data["discount"] = data.pop("diskon")
             with self._lock:
                 for bot in BOT_NAMES:
                     bot_data = data.get(bot, {})
