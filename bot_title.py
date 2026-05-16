@@ -92,6 +92,11 @@ def _ensure_prompt_file_exists():
         print(f"[title] gagal auto-create prompt file: {str(e)[:150]}")
 
 
+# Auto-create di module-import time supaya file muncul begitu bot launch,
+# TANPA harus nunggu PERLU TITLE pertama. Aman karena idempotent.
+_ensure_prompt_file_exists()
+
+
 # ===================== KONSTANTA =====================
 TEMP_IMG_DIR = os.path.join(SCRIPT_DIR, "temp_images")
 WORKER_TEMP_DIR = os.path.join(TEMP_IMG_DIR, "title-1")
