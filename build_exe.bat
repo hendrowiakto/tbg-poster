@@ -74,6 +74,15 @@ if exist "Bot Manage Listing.spec" del /q "Bot Manage Listing.spec"
 if exist "Bot Manage Listing.exe" del /q "Bot Manage Listing.exe"
 
 echo.
+echo Embed default prompt (regenerate _prompt_defaults.py)...
+python tools\embed_prompt.py
+if errorlevel 1 (
+    echo [ERROR] embed_prompt gagal.
+    if !NO_PAUSE!==0 pause
+    exit /b 1
+)
+
+echo.
 echo Membangun EXE (PyInstaller onefile, windowed)...
 pyinstaller ^
     --onefile ^
@@ -86,7 +95,6 @@ pyinstaller ^
     --add-data "Bot Manage Listing.html;." ^
     --add-data "notif.wav;." ^
     --add-data "VERSION.txt;." ^
-    --add-data "prompt_title_template.txt;." ^
     --collect-all playwright ^
     --collect-all webview ^
     --collect-all clr_loader ^
@@ -122,6 +130,10 @@ echo  Pastikan file berikut ada di folder yang sama:
 echo    - config.txt
 echo    - credentials.json
 echo    - boys_gaming.gif (opsional, default to about:blank)
+echo.
+echo  Catatan: prompt_title_template.txt AUTO-CREATED di samping EXE
+echo  saat bot pertama jalan. Team production boleh edit file ini
+echo  untuk tweak prompt bot_title sesuai kebutuhan (no rebuild needed).
 echo ============================================================
 
 echo.

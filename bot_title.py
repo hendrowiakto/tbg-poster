@@ -52,23 +52,44 @@ else:
 
 
 def _resolve_prompt_file(filename):
-    """Resolve prompt file path. Order:
-    1. Next-to-exe / dev folder (user-editable, hot-reload).
-    2. _MEIPASS bundle (default fallback kalau user hapus file).
+    """Resolve prompt file path. Selalu next-to-exe (atau dev folder).
+
+    Prompt sekarang TIDAK di-bundle ke EXE — production team boleh edit
+    prompt_title_template.txt langsung di samping EXE. Kalau file hilang,
+    bot auto-create dari DEFAULT_TITLE_PROMPT yg di-embed (lihat
+    _ensure_prompt_file_exists).
     """
-    primary = os.path.join(SCRIPT_DIR, filename)
-    if os.path.exists(primary):
-        return primary
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        cand = os.path.join(meipass, filename)
-        if os.path.exists(cand):
-            return cand
-    return primary  # error path - akan fail di open() dengan FileNotFoundError yg jelas
+    return os.path.join(SCRIPT_DIR, filename)
 
 
 def _resolve_template_prompt_path():
     return _resolve_prompt_file("prompt_title_template.txt")
+
+
+# Default prompt di-embed dari prompt_title_template.txt via tools/embed_prompt.py.
+# Dipakai sebagai fallback untuk auto-create file kalau team hapus / belum punya.
+try:
+    from _prompt_defaults import DEFAULT_TITLE_PROMPT as _DEFAULT_TITLE_PROMPT
+except ImportError:
+    _DEFAULT_TITLE_PROMPT = None
+
+
+def _ensure_prompt_file_exists():
+    """Kalau prompt_title_template.txt belum ada di samping EXE/script,
+    tulis default-nya dari embedded constant. Idempotent — kalau sudah ada,
+    JANGAN overwrite (preserve edit user)."""
+    path = _resolve_template_prompt_path()
+    if os.path.exists(path):
+        return  # user-edited file ada, jangan disentuh
+    if not _DEFAULT_TITLE_PROMPT:
+        return  # dev mode tanpa embed artifact + file ndak ada = ignore
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_DEFAULT_TITLE_PROMPT)
+        # Tidak pakai add_log karena _ctx mungkin belum bound.
+        print(f"[title] auto-created {path} (team boleh edit file ini)")
+    except Exception as e:
+        print(f"[title] gagal auto-create prompt file: {str(e)[:150]}")
 
 
 # ===================== KONSTANTA =====================
@@ -127,6 +148,10 @@ def _bind_ctx(ctx):
     global _ctx, spreadsheet_client, gemini_model
     _ctx               = ctx
     spreadsheet_client = ctx.sheets.spreadsheet
+
+    # First-run: auto-create prompt_title_template.txt next to EXE kalau team
+    # belum punya. Team boleh edit setelahnya, bot ndak akan overwrite.
+    _ensure_prompt_file_exists()
 
     if gemini_model is None:
         api_key = ctx.config.get("GEMINI_API_KEY", "")
